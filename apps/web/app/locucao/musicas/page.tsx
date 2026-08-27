@@ -102,7 +102,11 @@ export default function MusicasPage() {
 
       try {
         const duracao = await duracaoDoArquivo(file);
-        const caminho = `${crypto.randomUUID()}-${file.name}`;
+        // Sanitizar nome: remover acentos, espaços e caracteres especiais
+        const nomeLimpo = file.name
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // remove acentos
+          .replace(/[^a-zA-Z0-9._-]/g, '_');                 // troca especiais por _
+        const caminho = `${crypto.randomUUID()}-${nomeLimpo}`;
         const { error: erroUpload } = await supabase.storage.from('musicas').upload(caminho, file);
         if (erroUpload) {
           detalhesErro.push(`${file.name}: ${erroUpload.message}`);
@@ -114,7 +118,7 @@ export default function MusicasPage() {
           title: file.name.replace(/\.[^.]+$/, ''),
           storage_path: caminho,
           source: 'upload',
-          duration_seconds: duracao,
+          duration_seconds: duracao ? Math.round(duracao) : null,
           position: posicao,
         });
         if (erroInsert) {
