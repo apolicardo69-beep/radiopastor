@@ -99,11 +99,14 @@ export default function LocucaoHome() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session) return;
+    if (!session) {
+      setErroMusica('Você precisa estar logado como pastor para ir ao ar.');
+      return;
+    }
     iniciar(session.access_token, audioMusicaRef.current);
   }
 
-  function tocarMusicaNaTransmissao(track: Track) {
+  async function tocarMusicaNaTransmissao(track: Track) {
     const url = getTrackUrl(track);
     if (!url || !audioMusicaRef.current) {
       setErroMusica('Link ou arquivo de áudio não encontrado para esta música.');
@@ -124,14 +127,25 @@ export default function LocucaoHome() {
       audioEl.removeAttribute('crossOrigin');
     }
     audioEl.src = url;
+    audioEl.volume = Math.min(1, Math.max(0, volumeMusica));
     audioEl.load();
 
     audioEl
       .play()
-      .then(() => {
+      .then(async () => {
         setMusicaTocando(track);
         setEstaTocandoMusica(true);
         conectarElementoAudio(audioEl);
+
+        // Se ainda não estiver ao vivo, conecta automaticamente à transmissão para que os ouvintes escutem esta música
+        if (status === 'parado') {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session) {
+            iniciar(session.access_token, audioEl);
+          }
+        }
       })
       .catch((err) => {
         console.error('Erro ao tocar áudio:', err);
