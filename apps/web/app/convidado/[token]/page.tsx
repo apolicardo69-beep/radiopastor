@@ -1,9 +1,6 @@
 'use client';
 
-// Página que o convidado abre a partir do link que o pastor manda (sem
-// precisar de conta). Aqui ele confirma quem é, ouve a rádio enquanto
-// espera, e quando o pastor chama, aperta um botão pra entrar ao vivo com o
-// próprio microfone do celular.
+// Página que o convidado abre a partir do link no celular
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -63,37 +60,51 @@ export default function ConvidadoPage() {
   const aoVivo = status === 'ao_vivo';
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#f7f1e6] px-4 text-center text-[#2b2118]">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#f7f1e6] px-4 py-8 text-center text-[#2b2118]">
       <audio ref={audioRef} src={STREAM_URL} preload="none" />
 
-      <div>
-        <p className="text-sm text-[#7a6a52]">Bem-vindo(a) à Rádio Graça &amp; Paz</p>
-        <h1 className="text-2xl font-bold">{guest.name}</h1>
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex h-12 w-12 items-center justify-center rounded-3xl bg-[#2b2118] text-xl text-white shadow-md">
+          🎙️
+        </div>
+        <p className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          Entrevista ao Vivo · Rádio Graça &amp; Paz
+        </p>
+        <h1 className="text-2xl font-black text-[#2b2118]">{guest.name}</h1>
       </div>
 
+      {/* Ouvir a Rádio Antes */}
       <button
         onClick={alternarOuvir}
-        className="rounded-lg border border-[#d9c9a8] bg-white px-4 py-2 text-sm font-medium"
+        className="rounded-2xl border border-[#d9c9a8] bg-white px-4 py-2.5 text-xs font-bold text-[#2b2118] shadow-xs transition active:scale-95"
       >
-        {ouvindo ? '⏸ Parar de ouvir' : '▶ Ouvir a rádio enquanto espera'}
+        {ouvindo ? '⏸ Pausar Áudio da Rádio' : '▶ Ouvir a Rádio Enquanto Aguarda'}
       </button>
 
-      <div className="w-full max-w-xs rounded-2xl bg-white p-6 shadow-sm">
-        <p className="mb-4 text-sm font-medium text-[#7a6a52]">
+      {/* Card do Microfone do Convidado */}
+      <div className="w-full max-w-xs rounded-3xl bg-white p-6 shadow-md">
+        <p className="mb-4 text-xs font-bold text-[#7a6a52]">
           {aoVivo
-            ? 'Você está AO VIVO com o pastor'
-            : 'Quando o pastor chamar, aperte para entrar ao vivo'}
+            ? '🔴 VOCÊ ESTÁ AO VIVO COM O PASTOR!'
+            : 'Quando o pastor chamar, toque no botão para falar:'}
         </p>
         <button
           onClick={aoVivo ? parar : entrarAoVivo}
           disabled={status === 'pedindo_microfone' || status === 'conectando'}
-          className={`mx-auto flex h-32 w-32 items-center justify-center rounded-full text-base font-bold text-white shadow-lg disabled:opacity-60 ${
-            aoVivo ? 'bg-[#b3261e]' : 'bg-[#2f6b4f]'
+          className={`mx-auto flex h-36 w-36 flex-col items-center justify-center rounded-full text-sm font-extrabold text-white shadow-xl transition active:scale-95 disabled:opacity-60 ${
+            aoVivo
+              ? 'animate-pulse bg-[#b3261e] ring-8 ring-[#b3261e]/20'
+              : 'bg-[#2f6b4f] ring-8 ring-[#2f6b4f]/15'
           }`}
         >
-          {aoVivo ? 'Sair' : 'Entrar ao vivo'}
+          <span className="text-3xl">{aoVivo ? '🛑' : '🎙️'}</span>
+          <span className="mt-1">{aoVivo ? 'Sair do Ar' : 'Entrar ao Vivo'}</span>
         </button>
-        {erro && <p className="mt-3 text-sm text-[#b3261e]">{erro}</p>}
+        {erro && (
+          <p className="mt-4 rounded-xl bg-[#fbeaea] p-2.5 text-xs font-semibold text-[#b3261e]">
+            {erro}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -102,7 +113,8 @@ export default function ConvidadoPage() {
 function TelaCentralizada({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f7f1e6] px-6 text-center text-[#2b2118]">
-      <p>{children}</p>
+      <p className="text-sm font-medium">{children}</p>
     </div>
   );
 }
+

@@ -1,10 +1,5 @@
 'use client';
 
-// Login da equipe (pastor/moderador). Propositalmente simples: só e-mail e
-// senha, textos grandes, uma única ação por tela — pensado pra alguém que
-// não usa muito a tecnologia e vai abrir isso raramente (o celular fica
-// logado o tempo todo depois do primeiro acesso).
-
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -32,46 +27,56 @@ export default function EntrarPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f7f1e6] px-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#f7f1e6] px-4 py-8">
+      <div className="mb-6 flex flex-col items-center gap-2 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[#2b2118] text-2xl shadow-md">
+          📻
+        </div>
+        <h1 className="text-xl font-bold text-[#2b2118]">Rádio Graça &amp; Paz</h1>
+        <p className="text-xs text-[#7a6a52]">Console do Locutor &amp; Estúdio</p>
+      </div>
+
       <form
         onSubmit={entrar}
-        className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-lg"
+        className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-md"
       >
-        <h1 className="mb-1 text-2xl font-bold text-[#2b2118]">Entrar na locução</h1>
-        <p className="mb-6 text-sm text-[#7a6a52]">Área da equipe da Rádio Graça &amp; Paz</p>
+        <h2 className="mb-4 text-base font-bold text-[#2b2118]">Acessar o Estúdio</h2>
 
         {erro && (
-          <p className="mb-4 rounded-lg bg-[#fbeaea] px-3 py-2 text-sm text-[#b3261e]">{erro}</p>
+          <p className="mb-4 rounded-xl bg-[#fbeaea] p-3 text-xs font-semibold text-[#b3261e]">
+            {erro}
+          </p>
         )}
 
-        <label className="mb-1 block text-sm font-medium text-[#2b2118]">E-mail</label>
+        <label className="mb-1 block text-xs font-bold text-[#2b2118]">Seu E-mail</label>
         <input
           type="email"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="mb-4 w-full rounded-lg border border-[#d9c9a8] px-4 py-3 text-base"
+          className="mb-3.5 w-full rounded-xl border border-[#d9c9a8] bg-[#f7f1e6]/30 px-3.5 py-3 text-sm focus:border-[#2b2118] focus:bg-white focus:outline-none"
           placeholder="pastor@igreja.com"
         />
 
-        <label className="mb-1 block text-sm font-medium text-[#2b2118]">Senha</label>
+        <label className="mb-1 block text-xs font-bold text-[#2b2118]">Sua Senha</label>
         <input
           type="password"
           required
           value={senha}
           onChange={(e) => setSenha(e.target.value)}
-          className="mb-6 w-full rounded-lg border border-[#d9c9a8] px-4 py-3 text-base"
+          className="mb-5 w-full rounded-xl border border-[#d9c9a8] bg-[#f7f1e6]/30 px-3.5 py-3 text-sm focus:border-[#2b2118] focus:bg-white focus:outline-none"
           placeholder="••••••••"
         />
 
         <button
           type="submit"
           disabled={carregando}
-          className="w-full rounded-lg bg-[#2b2118] py-3 text-lg font-semibold text-[#f7f1e6] disabled:opacity-60"
+          className="w-full rounded-xl bg-[#2b2118] py-3.5 text-sm font-bold text-[#f7f1e6] shadow-sm transition active:scale-95 disabled:opacity-60"
         >
-          {carregando ? 'Entrando...' : 'Entrar'}
+          {carregando ? 'Entrando no Estúdio...' : 'Entrar na Locução'}
         </button>
       </form>
     </div>
   );
 }
+

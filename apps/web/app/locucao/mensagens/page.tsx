@@ -1,7 +1,6 @@
 'use client';
 
-// Histórico de mensagens dos ouvintes — texto e áudio — com destaque pros
-// pedidos de música (que o pastor pode marcar como atendido).
+// Histórico de mensagens dos ouvintes com filtros e moderação
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Message } from '@/lib/types';
@@ -43,7 +42,6 @@ export default function MensagensPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // resolve a URL pública de cada mensagem de áudio sob demanda
   async function obterUrlAudio(m: Message) {
     if (!m.audio_storage_path || urlsAudio[m.id]) return;
     const { data } = supabase.storage.from('mensagens-audio').getPublicUrl(m.audio_storage_path);
@@ -57,40 +55,49 @@ export default function MensagensPage() {
   const visiveis = filtro === 'pedidos' ? mensagens.filter((m) => m.type === 'pedido') : mensagens;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 pb-8">
+      {/* Filtros em abas tipo pílula */}
       <div className="flex gap-2">
         <button
           onClick={() => setFiltro('todas')}
-          className={`rounded-lg px-3 py-1.5 text-sm ${filtro === 'todas' ? 'bg-[#2b2118] text-[#f7f1e6]' : 'bg-white'}`}
+          className={`flex-1 rounded-2xl py-2.5 text-xs font-bold transition active:scale-95 shadow-xs ${
+            filtro === 'todas'
+              ? 'bg-[#2b2118] text-[#f7f1e6]'
+              : 'bg-white text-[#5c4a35] hover:bg-[#f0e6d2]'
+          }`}
         >
-          Todas
+          💬 Todas ({mensagens.length})
         </button>
         <button
           onClick={() => setFiltro('pedidos')}
-          className={`rounded-lg px-3 py-1.5 text-sm ${filtro === 'pedidos' ? 'bg-[#2b2118] text-[#f7f1e6]' : 'bg-white'}`}
+          className={`flex-1 rounded-2xl py-2.5 text-xs font-bold transition active:scale-95 shadow-xs ${
+            filtro === 'pedidos'
+              ? 'bg-[#2b2118] text-[#f7f1e6]'
+              : 'bg-white text-[#5c4a35] hover:bg-[#f0e6d2]'
+          }`}
         >
-          Pedidos de música
+          🎵 Pedidos de Louvor
         </button>
       </div>
 
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-2.5">
         {visiveis.map((m) => (
-          <li key={m.id} className="rounded-xl bg-white p-4 shadow-sm">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-sm font-semibold">
-                {m.author_name}
+          <li key={m.id} className="rounded-3xl bg-white p-4 shadow-sm">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-[#2b2118]">{m.author_name}</span>
                 {m.is_guest && (
-                  <span className="ml-2 rounded bg-[#8a6d3b] px-1.5 py-0.5 text-[10px] text-white">
+                  <span className="rounded-md bg-[#8a6d3b] px-1.5 py-0.5 text-[9px] font-bold text-white">
                     CONVIDADO
                   </span>
                 )}
                 {m.type === 'pedido' && (
-                  <span className="ml-2 rounded bg-[#c98a2c] px-1.5 py-0.5 text-[10px] text-white">
+                  <span className="rounded-md bg-[#c98a2c] px-1.5 py-0.5 text-[9px] font-bold text-white">
                     PEDIDO
                   </span>
                 )}
-              </span>
-              <span className="text-xs text-[#a0937a]">
+              </div>
+              <span className="text-[10px] text-[#a0937a]">
                 {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
@@ -101,26 +108,33 @@ export default function MensagensPage() {
                 onPlay={() => obterUrlAudio(m)}
                 src={urlsAudio[m.id]}
                 onCanPlay={() => !urlsAudio[m.id] && obterUrlAudio(m)}
-                className="w-full"
+                className="mt-1 h-8 w-full"
               />
             ) : (
-              <p className="text-sm">{m.content}</p>
+              <p className="text-xs leading-relaxed text-[#2b2118]">{m.content}</p>
             )}
 
             {m.type === 'pedido' && (
               <button
                 onClick={() => marcarAtendido(m)}
-                className={`mt-2 rounded-lg px-3 py-1 text-xs font-medium ${
-                  m.fulfilled ? 'bg-[#eaf3ec] text-[#2f6b4f]' : 'bg-[#f0e6d2] text-[#7a6a52]'
+                className={`mt-2.5 flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                  m.fulfilled
+                    ? 'bg-[#eaf3ec] text-[#2f6b4f]'
+                    : 'bg-[#f0e6d2] text-[#5c4a35] hover:bg-[#e4d6be]'
                 }`}
               >
-                {m.fulfilled ? '✓ Atendido' : 'Marcar como atendido'}
+                {m.fulfilled ? '✓ Pedido Atendido' : 'Marcar como Atendido'}
               </button>
             )}
           </li>
         ))}
-        {visiveis.length === 0 && <p className="text-sm text-[#a0937a]">Nenhuma mensagem por aqui ainda.</p>}
+        {visiveis.length === 0 && (
+          <p className="py-12 text-center text-xs text-[#a0937a]">
+            Nenhuma mensagem recebida ainda.
+          </p>
+        )}
       </ul>
     </div>
   );
 }
+

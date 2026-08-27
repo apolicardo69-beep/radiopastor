@@ -189,104 +189,157 @@ export default function MusicasPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-2 font-semibold">📁 Adicionar músicas do celular/computador</h2>
-        <p className="mb-3 text-xs text-[#7a6a52]">
-          Selecione <strong>um ou vários</strong> arquivos de áudio (.mp3, .wav, .m4a) de uma só vez.
+    <div className="flex flex-col gap-4 pb-8">
+      {/* Upload de Músicas do Celular */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          📁 Enviar Músicas do Celular / Computador
+        </h2>
+        <p className="mb-3 text-[11px] text-[#7a6a52]">
+          Toque no botão abaixo e selecione <strong>uma ou várias músicas</strong> (.mp3, .wav, .m4a) de uma só vez.
         </p>
-        <input
-          ref={inputArquivoRef}
-          type="file"
-          accept="audio/*"
-          multiple
-          disabled={enviando}
-          onChange={(e) => e.target.files && e.target.files.length > 0 && enviarVariosArquivos(e.target.files)}
-          className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#2b2118] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#f7f1e6] hover:file:bg-[#43362a]"
-        />
+        
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#d9c9a8] bg-[#f7f1e6]/50 p-5 text-center transition active:bg-[#f0e6d2] hover:bg-[#f7f1e6]">
+          <span className="text-3xl">🎵</span>
+          <span className="mt-2 text-xs font-bold text-[#2b2118]">
+            {enviando ? 'Enviando arquivos...' : 'Toque aqui para escolher músicas'}
+          </span>
+          <span className="text-[10px] text-[#7a6a52]">Aceita vários arquivos de uma vez</span>
+          <input
+            ref={inputArquivoRef}
+            type="file"
+            accept="audio/*"
+            multiple
+            disabled={enviando}
+            onChange={(e) => e.target.files && e.target.files.length > 0 && enviarVariosArquivos(e.target.files)}
+            className="hidden"
+          />
+        </label>
+
         {progresso && (
-          <p className="mt-2 text-xs font-medium text-[#2f6b4f]">{progresso}</p>
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#eaf3ec] p-2.5 text-xs font-bold text-[#2f6b4f]">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <span>{progresso}</span>
+          </div>
         )}
       </section>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-2 font-semibold">🔗 Adicionar por link direto de áudio</h2>
-        <p className="mb-3 text-xs text-[#7a6a52]">Cole o link de um arquivo de áudio na internet (.mp3 ou .wav).</p>
-        <form onSubmit={adicionarLink} className="flex flex-col gap-3">
+      {/* Adicionar Link Web */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          🔗 Adicionar por Link de Áudio
+        </h2>
+        <p className="mb-3 text-[11px] text-[#7a6a52]">Cole o link direto (.mp3 / .wav) de um louvor na internet.</p>
+        <form onSubmit={adicionarLink} className="flex flex-col gap-2.5">
           <input
             value={tituloLink}
             onChange={(e) => setTituloLink(e.target.value)}
-            placeholder="Nome da música (ex: Louvor da Harpa 15)"
-            className="rounded-lg border border-[#d9c9a8] px-3 py-2 text-sm"
+            placeholder="Nome da música (ex: Porque Ele Vive)"
+            className="rounded-xl border border-[#d9c9a8] px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
           />
           <input
             value={link}
             onChange={(e) => setLink(e.target.value)}
             placeholder="https://exemplo.com/musica.mp3"
-            className="rounded-lg border border-[#d9c9a8] px-3 py-2 text-sm"
+            className="rounded-xl border border-[#d9c9a8] px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
           />
           <button
             type="submit"
             disabled={enviando || !link.trim()}
-            className="rounded-lg bg-[#2b2118] py-2 text-sm font-semibold text-[#f7f1e6] disabled:opacity-60"
+            className="rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
           >
-            Adicionar à playlist
+            Adicionar à Playlist
           </button>
         </form>
       </section>
 
-      {sucesso && <p className="rounded-lg bg-[#eaf3ec] px-3 py-2 text-sm font-medium text-[#2f6b4f]">{sucesso}</p>}
-      {erro && <p className="rounded-lg bg-[#fbeaea] px-3 py-2 text-sm text-[#b3261e]">{erro}</p>}
+      {sucesso && (
+        <p className="rounded-2xl bg-[#eaf3ec] p-3 text-center text-xs font-bold text-[#2f6b4f]">
+          {sucesso}
+        </p>
+      )}
+      {erro && (
+        <p className="rounded-2xl bg-[#fbeaea] p-3 text-center text-xs font-semibold text-[#b3261e]">
+          {erro}
+        </p>
+      )}
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold">🎵 Playlist Atual ({tracks.length})</h2>
-          <span className="text-xs text-[#7a6a52]">Toca na rádio 24h</span>
+      {/* Playlist Atual */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between border-b border-[#f0e6d2] pb-2">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+              🎵 Playlist da Rádio ({tracks.length})
+            </h2>
+            <span className="text-[10px] text-[#a0937a]">Toca 24h quando não há locutor</span>
+          </div>
         </div>
 
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-2">
           {tracks.map((track, i) => {
             const estaTocando = tocandoId === track.id;
             return (
               <li
                 key={track.id}
-                className={`flex items-center gap-3 rounded-xl p-3 transition ${
-                  estaTocando ? 'border border-[#2b2118] bg-[#e8dac0]' : 'bg-[#f0e6d2]'
+                className={`flex items-center gap-2 rounded-2xl p-2.5 transition ${
+                  estaTocando ? 'bg-[#e8dac0] shadow-xs' : 'bg-[#f0e6d2]/70 hover:bg-[#f0e6d2]'
                 }`}
               >
-                <div className="flex flex-col gap-0.5">
-                  <button onClick={() => mover(i, -1)} disabled={i === 0}
-                    className="rounded bg-white/50 px-1 text-xs disabled:opacity-30" title="Mover para cima">▲</button>
-                  <button onClick={() => mover(i, 1)} disabled={i === tracks.length - 1}
-                    className="rounded bg-white/50 px-1 text-xs disabled:opacity-30" title="Mover para baixo">▼</button>
+                {/* Botões Reordenar (Touch-friendly) */}
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => mover(i, -1)}
+                    disabled={i === 0}
+                    className="flex h-5 w-6 items-center justify-center rounded-md bg-white/90 text-[10px] font-bold shadow-xs disabled:opacity-20 active:scale-90"
+                    title="Mover para cima"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    onClick={() => mover(i, 1)}
+                    disabled={i === tracks.length - 1}
+                    className="flex h-5 w-6 items-center justify-center rounded-md bg-white/90 text-[10px] font-bold shadow-xs disabled:opacity-20 active:scale-90"
+                    title="Mover para baixo"
+                  >
+                    ▼
+                  </button>
                 </div>
 
-                <button type="button" onClick={() => alternarPrevia(track)}
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg shadow-sm transition ${
-                    estaTocando ? 'bg-[#b3261e] text-white' : 'bg-[#2b2118] text-white'
+                {/* Botão Play Prévia */}
+                <button
+                  type="button"
+                  onClick={() => alternarPrevia(track)}
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white shadow-xs transition active:scale-90 ${
+                    estaTocando ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
                   }`}
-                  title={estaTocando ? 'Pausar prévia' : 'Ouvir prévia'}>
+                  title={estaTocando ? 'Pausar prévia' : 'Ouvir prévia'}
+                >
                   {estaTocando ? '⏸' : '▶'}
                 </button>
 
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-[#2b2118]">{track.title}</p>
-                  <p className="text-xs text-[#7a6a52]">
+                {/* Título e Duração */}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-bold text-[#2b2118]">{track.title}</p>
+                  <p className="text-[10px] text-[#7a6a52]">
                     {track.source === 'link' ? '🌐 Link' : '📁 Arquivo'} · {formatarDuracao(track.duration_seconds)}
                   </p>
                 </div>
 
-                <button onClick={() => remover(track)}
-                  className="rounded-lg px-2 py-1 text-xs font-semibold text-[#b3261e] hover:bg-[#b3261e]/10" title="Remover">
-                  Remover
+                {/* Remover */}
+                <button
+                  onClick={() => remover(track)}
+                  className="rounded-xl px-2 py-1.5 text-[11px] font-bold text-[#b3261e] hover:bg-[#b3261e]/10 active:scale-90 transition"
+                  title="Remover da rádio"
+                >
+                  ✕
                 </button>
               </li>
             );
           })}
 
           {tracks.length === 0 && (
-            <p className="py-4 text-center text-sm text-[#a0937a]">
-              Nenhuma música na playlist ainda. Adicione acima para tocar na rádio!
+            <p className="py-8 text-center text-xs text-[#a0937a]">
+              Nenhuma música na playlist ainda. Adicione músicas acima!
             </p>
           )}
         </ul>

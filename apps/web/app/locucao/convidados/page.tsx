@@ -1,16 +1,14 @@
 'use client';
 
-// Criar e acompanhar convites de entrevista ao vivo. Cada convidado recebe
-// um link único (com um token) — é só mandar por WhatsApp e a pessoa entra
-// direto na hora combinada, sem precisar criar conta nem instalar nada.
+// Criar e acompanhar convites de entrevista ao vivo
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Guest } from '@/lib/types';
 
 const TEXTO_STATUS: Record<string, string> = {
-  pendente: 'Aguardando o convidado abrir o link',
-  conectado: 'Convidado abriu o link',
-  ao_vivo: 'Ao vivo agora',
+  pendente: 'Aguardando convidado abrir link',
+  conectado: 'Conectado (pronto)',
+  ao_vivo: '🔴 Ao vivo agora',
   encerrado: 'Encerrado',
 };
 
@@ -63,54 +61,70 @@ export default function ConvidadosPage() {
   async function copiarLink(g: Guest) {
     await navigator.clipboard.writeText(linkDoConvite(g));
     setLinkCopiado(g.id);
-    setTimeout(() => setLinkCopiado(null), 2000);
+    setTimeout(() => setLinkCopiado(null), 2500);
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-3 font-semibold">Convidar alguém para uma entrevista ao vivo</h2>
+    <div className="flex flex-col gap-4 pb-8">
+      {/* Gerar Link do Convidado */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          👤 Convidar para Entrevista
+        </h2>
+        <p className="mb-3 text-[11px] text-[#7a6a52]">
+          Gera um link exclusivo para o convidado entrar ao vivo com o microfone do celular.
+        </p>
         <form onSubmit={criarConvite} className="flex gap-2">
           <input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
-            placeholder="Nome do convidado"
-            className="flex-1 rounded-lg border border-[#d9c9a8] px-3 py-2 text-sm"
+            placeholder="Nome do convidado (ex: Pastor Lucas)"
+            className="flex-1 rounded-xl border border-[#d9c9a8] px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
           />
           <button
             type="submit"
-            disabled={criando}
-            className="rounded-lg bg-[#2b2118] px-4 py-2 text-sm font-semibold text-[#f7f1e6] disabled:opacity-60"
+            disabled={criando || !nome.trim()}
+            className="rounded-xl bg-[#2b2118] px-4 py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
           >
-            Criar link
+            {criando ? 'Gerando...' : 'Criar Link'}
           </button>
         </form>
       </section>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-3 font-semibold">Convites</h2>
-        <ul className="flex flex-col gap-3">
+      {/* Lista de Convites */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          Convites Gerados ({convidados.length})
+        </h2>
+        <ul className="flex flex-col gap-2">
           {convidados.map((g) => (
-            <li key={g.id} className="rounded-lg bg-[#f0e6d2] p-3">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="font-medium">{g.name}</span>
-                <span className={`rounded px-2 py-0.5 text-xs font-medium ${COR_STATUS[g.status]}`}>
+            <li key={g.id} className="rounded-2xl bg-[#f0e6d2]/70 p-3.5">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-bold text-[#2b2118]">{g.name}</span>
+                <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${COR_STATUS[g.status]}`}>
                   {TEXTO_STATUS[g.status]}
                 </span>
               </div>
               <button
                 onClick={() => copiarLink(g)}
-                className="text-xs font-medium text-[#5c4a35] underline"
+                className={`w-full rounded-xl py-2 text-center text-xs font-bold transition active:scale-95 shadow-xs ${
+                  linkCopiado === g.id
+                    ? 'bg-[#2f6b4f] text-white'
+                    : 'bg-white text-[#2b2118] hover:bg-[#f7f1e6]'
+                }`}
               >
-                {linkCopiado === g.id ? 'Link copiado!' : 'Copiar link do convite'}
+                {linkCopiado === g.id ? '✓ Link Copiado para o WhatsApp!' : '📋 Copiar Link do Convidado'}
               </button>
             </li>
           ))}
           {convidados.length === 0 && (
-            <p className="text-sm text-[#a0937a]">Nenhum convidado ainda.</p>
+            <p className="py-6 text-center text-xs text-[#a0937a]">
+              Nenhum convite criado ainda. Digite o nome acima para gerar o primeiro!
+            </p>
           )}
         </ul>
       </section>
     </div>
   );
 }
+

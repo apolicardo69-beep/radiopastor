@@ -1,7 +1,6 @@
 'use client';
 
-// Cadastro de patrocinadores: nome, uma frase curta e a logo que aparece na
-// tela do ouvinte a cada N músicas tocadas.
+// Cadastro de patrocinadores e apoios culturais
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Sponsor } from '@/lib/types';
@@ -43,7 +42,7 @@ export default function PatrocinadoresPage() {
     try {
       let logoPath: string | null = null;
       if (arquivo) {
-        const caminho = `${crypto.randomUUID()}-${arquivo.name}`;
+        const caminho = `${crypto.randomUUID()}-${arquivo.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
         const { error } = await supabase.storage.from('patrocinadores').upload(caminho, arquivo);
         if (error) throw error;
         logoPath = caminho;
@@ -78,82 +77,96 @@ export default function PatrocinadoresPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-3 font-semibold">Novo patrocinador</h2>
+    <div className="flex flex-col gap-4 pb-8">
+      {/* Formulário Novo Patrocinador */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          🏷️ Novo Patrocinador / Apoio
+        </h2>
+        <p className="mb-3 text-[11px] text-[#7a6a52]">
+          Aparece na tela do celular dos ouvintes a cada N músicas tocadas.
+        </p>
+
         <form onSubmit={adicionar} className="flex flex-col gap-3">
           <input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
-            placeholder="Nome do patrocinador"
-            className="rounded-lg border border-[#d9c9a8] px-3 py-2 text-sm"
+            placeholder="Nome da empresa ou patrocinador"
+            className="rounded-xl border border-[#d9c9a8] px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
           />
           <input
             value={frase}
             onChange={(e) => setFrase(e.target.value)}
-            placeholder="Frase curta (opcional)"
-            className="rounded-lg border border-[#d9c9a8] px-3 py-2 text-sm"
+            placeholder="Frase ou slogan curto (opcional)"
+            className="rounded-xl border border-[#d9c9a8] px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
           />
-          <label className="text-sm text-[#7a6a52]">
-            Logo (opcional)
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
-              className="mt-1 block w-full text-sm"
-            />
-          </label>
-          <label className="text-sm text-[#7a6a52]">
-            Aparece a cada quantas músicas
+
+          <div className="flex items-center justify-between rounded-xl bg-[#f0e6d2]/50 p-2.5">
+            <span className="text-xs font-semibold text-[#2b2118]">
+              Exibir a cada quantas músicas:
+            </span>
             <input
               type="number"
               min={1}
               value={intervalo}
               onChange={(e) => setIntervalo(Number(e.target.value))}
-              className="mt-1 block w-24 rounded-lg border border-[#d9c9a8] px-3 py-2 text-sm"
+              className="w-16 rounded-lg border border-[#d9c9a8] bg-white px-2 py-1 text-center text-xs font-bold"
             />
-          </label>
+          </div>
+
           <button
             type="submit"
-            disabled={enviando}
-            className="rounded-lg bg-[#2b2118] py-2 text-sm font-semibold text-[#f7f1e6] disabled:opacity-60"
+            disabled={enviando || !nome.trim()}
+            className="rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
           >
-            Salvar patrocinador
+            {enviando ? 'Salvando...' : 'Salvar Patrocinador'}
           </button>
         </form>
-        {erro && <p className="mt-2 text-sm text-[#b3261e]">{erro}</p>}
+        {erro && <p className="mt-2 text-xs font-semibold text-[#b3261e]">{erro}</p>}
       </section>
 
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-3 font-semibold">Patrocinadores cadastrados</h2>
+      {/* Lista de Patrocinadores Cadastrados */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          Patrocinadores ({patrocinadores.length})
+        </h2>
         <ul className="flex flex-col gap-2">
           {patrocinadores.map((s) => (
-            <li key={s.id} className="flex items-center justify-between rounded-lg bg-[#f0e6d2] px-3 py-2">
-              <div>
-                <p className="text-sm font-medium">{s.name}</p>
-                {s.tagline && <p className="text-xs text-[#7a6a52]">{s.tagline}</p>}
-                <p className="text-xs text-[#a0937a]">a cada {s.display_every_n_tracks} músicas</p>
+            <li
+              key={s.id}
+              className="flex items-center justify-between rounded-2xl bg-[#f0e6d2]/70 p-3.5"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-bold text-[#2b2118]">{s.name}</p>
+                {s.tagline && <p className="truncate text-[11px] text-[#7a6a52]">{s.tagline}</p>}
+                <p className="text-[10px] text-[#a0937a]">A cada {s.display_every_n_tracks} louvores</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={() => alternarAtivo(s)}
-                  className={`rounded px-2 py-1 text-xs font-medium ${
+                  className={`rounded-xl px-2.5 py-1 text-xs font-bold transition active:scale-95 ${
                     s.active ? 'bg-[#eaf3ec] text-[#2f6b4f]' : 'bg-[#e8e8e8] text-[#7a7a7a]'
                   }`}
                 >
                   {s.active ? 'Ativo' : 'Pausado'}
                 </button>
-                <button onClick={() => remover(s)} className="text-sm text-[#b3261e]">
-                  Remover
+                <button
+                  onClick={() => remover(s)}
+                  className="rounded-xl px-2 py-1 text-xs font-bold text-[#b3261e] hover:bg-[#b3261e]/10 active:scale-95"
+                >
+                  ✕
                 </button>
               </div>
             </li>
           ))}
           {patrocinadores.length === 0 && (
-            <p className="text-sm text-[#a0937a]">Nenhum patrocinador cadastrado ainda.</p>
+            <p className="py-6 text-center text-xs text-[#a0937a]">
+              Nenhum patrocinador cadastrado ainda.
+            </p>
           )}
         </ul>
       </section>
     </div>
   );
 }
+

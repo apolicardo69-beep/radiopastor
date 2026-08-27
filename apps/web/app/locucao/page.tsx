@@ -1,17 +1,15 @@
 'use client';
 
 // Tela principal da locução: controle do Ao Vivo + Mesa de Som / Músicas
-// Permite ao pastor ir ao ar, falar no microfone, e tocar louvores/fundos musicais
-// diretamente para os ouvintes com controle de volume em tempo real.
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAudioBroadcast } from '@/lib/useAudioBroadcast';
 import type { BroadcastState, Track } from '@/lib/types';
 
 const TEXTO_STATUS: Record<string, string> = {
-  parado: 'Fora do ar (tocando playlist automática 24h)',
-  pedindo_microfone: 'Pedindo acesso ao microfone...',
-  conectando: 'Conectando ao servidor...',
+  parado: 'Fora do ar · Toca playlist 24h',
+  pedindo_microfone: 'Solicitando microfone...',
+  conectando: 'Conectando ao estúdio...',
   ao_vivo: '🔴 VOCÊ ESTÁ AO VIVO NA RÁDIO',
   erro: 'Não foi possível ir ao ar',
 };
@@ -34,7 +32,6 @@ export default function LocucaoHome() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [musicaTocando, setMusicaTocando] = useState<Track | null>(null);
   const [estaTocandoMusica, setEstaTocandoMusica] = useState(false);
-
   const [erroMusica, setErroMusica] = useState<string | null>(null);
 
   const audioMusicaRef = useRef<HTMLAudioElement>(null);
@@ -129,15 +126,18 @@ export default function LocucaoHome() {
     audioEl.src = url;
     audioEl.load();
 
-    audioEl.play().then(() => {
-      setMusicaTocando(track);
-      setEstaTocandoMusica(true);
-      conectarElementoAudio(audioEl);
-    }).catch((err) => {
-      console.error('Erro ao tocar áudio:', err);
-      setErroMusica('Não foi possível carregar o áudio dessa música. Verifique se o link/arquivo é válido.');
-      setEstaTocandoMusica(false);
-    });
+    audioEl
+      .play()
+      .then(() => {
+        setMusicaTocando(track);
+        setEstaTocandoMusica(true);
+        conectarElementoAudio(audioEl);
+      })
+      .catch((err) => {
+        console.error('Erro ao tocar áudio:', err);
+        setErroMusica('Não foi possível carregar este áudio no navegador.');
+        setEstaTocandoMusica(false);
+      });
   }
 
   function pausarMusica() {
@@ -151,7 +151,7 @@ export default function LocucaoHome() {
   const ocupado = status === 'pedindo_microfone' || status === 'conectando';
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 pb-8">
       {/* Audio element oculto usado para mixagem */}
       <audio
         ref={audioMusicaRef}
@@ -161,44 +161,63 @@ export default function LocucaoHome() {
       />
 
       {/* Cartão Principal do Microfone / Ao Vivo */}
-      <section className="rounded-2xl bg-white p-6 text-center shadow-sm">
-        <p className={`mb-4 text-xs font-bold uppercase tracking-wider ${noAr ? 'text-[#b3261e]' : 'text-[#7a6a52]'}`}>
-          {TEXTO_STATUS[status]}
-        </p>
+      <section className="rounded-3xl bg-white p-6 text-center shadow-sm">
+        <div className="mb-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider bg-[#f0e6d2]">
+          <span
+            className={`h-2.5 w-2.5 rounded-full ${
+              noAr ? 'animate-ping bg-[#b3261e]' : 'bg-[#7a6a52]'
+            }`}
+          />
+          <span className={noAr ? 'text-[#b3261e]' : 'text-[#7a6a52]'}>
+            {TEXTO_STATUS[status]}
+          </span>
+        </div>
 
-        <button
-          onClick={alternarAoVivo}
-          disabled={ocupado}
-          className={`mx-auto flex h-36 w-36 items-center justify-center rounded-full text-base font-bold text-white shadow-xl transition-all active:scale-95 disabled:opacity-60 ${
-            noAr ? 'animate-pulse bg-[#b3261e] hover:bg-[#8f1e17]' : 'bg-[#2f6b4f] hover:bg-[#255740]'
-          }`}
-        >
-          {noAr ? 'Encerrar Ao Vivo' : 'Ir ao ar'}
-        </button>
+        {/* Botão Gigante de Transmissão */}
+        <div className="my-2 flex justify-center">
+          <button
+            onClick={alternarAoVivo}
+            disabled={ocupado}
+            className={`relative flex h-36 w-36 flex-col items-center justify-center rounded-full text-base font-extrabold text-white shadow-xl transition active:scale-95 disabled:opacity-60 ${
+              noAr
+                ? 'bg-[#b3261e] ring-8 ring-[#b3261e]/20 hover:bg-[#8f1e17]'
+                : 'bg-[#2f6b4f] ring-8 ring-[#2f6b4f]/15 hover:bg-[#255740]'
+            }`}
+          >
+            <span className="text-3xl">{noAr ? '🛑' : '🎙️'}</span>
+            <span className="mt-1 text-sm">{noAr ? 'Encerrar' : 'Ir ao Ar'}</span>
+          </button>
+        </div>
 
         {erro && (
-          <p className="mt-4 rounded-lg bg-[#fbeaea] px-3 py-2 text-sm text-[#b3261e]">{erro}</p>
+          <p className="mt-4 rounded-xl bg-[#fbeaea] p-3 text-xs font-semibold text-[#b3261e]">
+            {erro}
+          </p>
         )}
 
         {broadcast?.guest_live && (
-          <p className="mt-4 rounded-lg bg-[#eaf3ec] px-3 py-2 text-sm text-[#2f6b4f]">
-            🎙️ Convidado conectado ao vivo com você.
+          <p className="mt-4 rounded-xl bg-[#eaf3ec] p-2.5 text-xs font-bold text-[#2f6b4f]">
+            🎙️ Convidado conectado ao vivo com você!
           </p>
         )}
       </section>
 
-      {/* Mesa de Controle de Áudio (Mixer de Volumes) */}
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-4 text-sm font-bold uppercase tracking-wide text-[#7a6a52]">
-          🎛️ Mesa de Som (Mixer de Áudio)
+      {/* Mesa de Controle de Áudio (Mixer) */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+          🎛️ Mesa de Som (Mixer)
         </h2>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* Controle do Microfone */}
-          <div className="flex flex-col gap-2 rounded-xl bg-[#f0e6d2] p-3">
-            <div className="flex items-center justify-between text-xs font-semibold text-[#2b2118]">
-              <span>🎤 Microfone do Pastor</span>
-              <span>{Math.round(volumeMic * 100)}%</span>
+        <div className="flex flex-col gap-3">
+          {/* Fader Microfone */}
+          <div className="rounded-2xl bg-[#f0e6d2]/70 p-3.5">
+            <div className="flex items-center justify-between text-xs font-bold text-[#2b2118]">
+              <span className="flex items-center gap-1.5">
+                <span>🎤</span> Microfone Pastor
+              </span>
+              <span className="rounded-md bg-white/80 px-2 py-0.5 text-[11px]">
+                {Math.round(volumeMic * 100)}%
+              </span>
             </div>
             <input
               type="range"
@@ -207,21 +226,47 @@ export default function LocucaoHome() {
               step="0.05"
               value={volumeMic}
               onChange={(e) => alterarVolumeMic(parseFloat(e.target.value))}
-              className="accent-[#2b2118]"
+              className="mt-2.5 h-2 w-full cursor-pointer accent-[#2b2118]"
             />
-            <button
-              onClick={() => alterarVolumeMic(volumeMic > 0 ? 0 : 1)}
-              className={`text-left text-xs font-medium ${volumeMic === 0 ? 'text-[#b3261e]' : 'text-[#7a6a52]'}`}
-            >
-              {volumeMic === 0 ? '🔇 Microfone Mutado' : '🔊 Microfone Ativo'}
-            </button>
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={() => alterarVolumeMic(0)}
+                className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  volumeMic === 0 ? 'bg-[#b3261e] text-white' : 'bg-white/80 text-[#5c4a35]'
+                }`}
+              >
+                Mudo
+              </button>
+              <button
+                onClick={() => alterarVolumeMic(1.0)}
+                className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  volumeMic >= 0.95 && volumeMic <= 1.05
+                    ? 'bg-[#2b2118] text-white'
+                    : 'bg-white/80 text-[#5c4a35]'
+                }`}
+              >
+                Normal (100%)
+              </button>
+              <button
+                onClick={() => alterarVolumeMic(1.4)}
+                className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  volumeMic > 1.1 ? 'bg-[#2b2118] text-white' : 'bg-white/80 text-[#5c4a35]'
+                }`}
+              >
+                Boost (140%)
+              </button>
+            </div>
           </div>
 
-          {/* Controle da Música */}
-          <div className="flex flex-col gap-2 rounded-xl bg-[#f0e6d2] p-3">
-            <div className="flex items-center justify-between text-xs font-semibold text-[#2b2118]">
-              <span>🎵 Música / Fundo Musical</span>
-              <span>{Math.round(volumeMusica * 100)}%</span>
+          {/* Fader Música / Soundboard */}
+          <div className="rounded-2xl bg-[#f0e6d2]/70 p-3.5">
+            <div className="flex items-center justify-between text-xs font-bold text-[#2b2118]">
+              <span className="flex items-center gap-1.5">
+                <span>🎵</span> Louvor / Fundo
+              </span>
+              <span className="rounded-md bg-white/80 px-2 py-0.5 text-[11px]">
+                {Math.round(volumeMusica * 100)}%
+              </span>
             </div>
             <input
               type="range"
@@ -230,20 +275,32 @@ export default function LocucaoHome() {
               step="0.05"
               value={volumeMusica}
               onChange={(e) => alterarVolumeMusica(parseFloat(e.target.value))}
-              className="accent-[#2b2118]"
+              className="mt-2.5 h-2 w-full cursor-pointer accent-[#2b2118]"
             />
-            <div className="flex gap-2 text-xs">
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={() => alterarVolumeMusica(0)}
+                className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  volumeMusica === 0 ? 'bg-[#b3261e] text-white' : 'bg-white/80 text-[#5c4a35]'
+                }`}
+              >
+                Mudo
+              </button>
               <button
                 onClick={() => alterarVolumeMusica(0.25)}
-                className="rounded bg-white/70 px-2 py-0.5 font-medium hover:bg-white"
-                title="Deixar música baixinha como fundo de oração"
+                className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  volumeMusica >= 0.2 && volumeMusica <= 0.3
+                    ? 'bg-[#2b2118] text-white'
+                    : 'bg-white/80 text-[#5c4a35]'
+                }`}
               >
                 Fundo (25%)
               </button>
               <button
                 onClick={() => alterarVolumeMusica(0.85)}
-                className="rounded bg-white/70 px-2 py-0.5 font-medium hover:bg-white"
-                title="Tocar louvor no volume principal"
+                className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
+                  volumeMusica >= 0.8 ? 'bg-[#2b2118] text-white' : 'bg-white/80 text-[#5c4a35]'
+                }`}
               >
                 Louvor (85%)
               </button>
@@ -252,39 +309,39 @@ export default function LocucaoHome() {
         </div>
       </section>
 
-      {/* Soundboard / Tocar Louvores na Transmissão */}
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
+      {/* Soundboard / Músicas ao Vivo */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-wide text-[#7a6a52]">
-              📻 Tocar Músicas para os Ouvintes
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+              📻 Tocar Músicas no Ar
             </h2>
-            <p className="text-xs text-[#7a6a52]">
-              Clique em ▶ para soltar o louvor ou fundo musical para os fiéis.
+            <p className="text-[11px] text-[#a0937a]">
+              Solte um louvor ou fundo de oração diretamente na transmissão.
             </p>
           </div>
           {estaTocandoMusica && (
             <button
               onClick={pausarMusica}
-              className="rounded-lg bg-[#b3261e] px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#8f1e17]"
+              className="rounded-xl bg-[#b3261e] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition active:scale-95"
             >
-              ⏸ Pausar Música
+              ⏸ Pausar
             </button>
           )}
         </div>
 
         {musicaTocando && estaTocandoMusica && (
-          <div className="mb-3 flex items-center justify-between rounded-xl border border-[#2f6b4f] bg-[#eaf3ec] p-3 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="animate-spin text-sm">💿</span>
-              <div>
+          <div className="mb-3 flex items-center justify-between rounded-2xl border border-[#2f6b4f] bg-[#eaf3ec] p-3 text-xs">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="animate-spin text-lg">💿</span>
+              <div className="truncate">
                 <p className="font-bold text-[#2f6b4f]">Tocando Agora para os Ouvintes:</p>
-                <p className="font-medium text-[#2b2118]">{musicaTocando.title}</p>
+                <p className="truncate font-semibold text-[#2b2118]">{musicaTocando.title}</p>
               </div>
             </div>
             <button
               onClick={pausarMusica}
-              className="rounded-md bg-[#2f6b4f] px-2 py-1 font-semibold text-white"
+              className="ml-2 shrink-0 rounded-lg bg-[#2f6b4f] px-2.5 py-1 text-xs font-bold text-white shadow-xs"
             >
               Pausar
             </button>
@@ -292,7 +349,9 @@ export default function LocucaoHome() {
         )}
 
         {erroMusica && (
-          <p className="mb-3 rounded-lg bg-[#fbeaea] px-3 py-2 text-xs text-[#b3261e]">{erroMusica}</p>
+          <p className="mb-3 rounded-xl bg-[#fbeaea] p-2.5 text-center text-xs font-semibold text-[#b3261e]">
+            {erroMusica}
+          </p>
         )}
 
         <ul className="flex flex-col gap-2">
@@ -301,23 +360,23 @@ export default function LocucaoHome() {
             return (
               <li
                 key={track.id}
-                className={`flex items-center justify-between rounded-xl p-3 transition ${
-                  estaTocandoEsta ? 'bg-[#e8dac0] font-semibold' : 'bg-[#f0e6d2]'
+                className={`flex items-center justify-between gap-2 rounded-2xl p-3 transition ${
+                  estaTocandoEsta ? 'bg-[#e8dac0] shadow-xs' : 'bg-[#f0e6d2]/80 hover:bg-[#f0e6d2]'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
                   <button
                     onClick={() => tocarMusicaNaTransmissao(track)}
-                    className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white shadow-sm transition active:scale-95 ${
-                      estaTocandoEsta ? 'bg-[#b3261e]' : 'bg-[#2b2118] hover:bg-[#43362a]'
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm transition active:scale-90 ${
+                      estaTocandoEsta ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
                     }`}
-                    title={estaTocandoEsta ? 'Pausar louvor' : 'Tocar louvor na transmissão'}
+                    title={estaTocandoEsta ? 'Pausar louvor' : 'Tocar louvor'}
                   >
                     {estaTocandoEsta ? '⏸' : '▶'}
                   </button>
-                  <div>
-                    <p className="text-sm text-[#2b2118]">{track.title}</p>
-                    <p className="text-[11px] text-[#7a6a52]">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-bold text-[#2b2118]">{track.title}</p>
+                    <p className="text-[10px] text-[#7a6a52]">
                       {track.source === 'link' ? '🌐 Link' : '📁 Arquivo'}
                     </p>
                   </div>
@@ -325,21 +384,21 @@ export default function LocucaoHome() {
 
                 <button
                   onClick={() => tocarMusicaNaTransmissao(track)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+                  className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95 shadow-xs ${
                     estaTocandoEsta
                       ? 'bg-[#b3261e] text-white'
                       : 'bg-white text-[#2b2118] hover:bg-[#f7f1e6]'
                   }`}
                 >
-                  {estaTocandoEsta ? 'Pausar' : '▶ Tocar no Ar'}
+                  {estaTocandoEsta ? 'Pausar' : '▶ Tocar'}
                 </button>
               </li>
             );
           })}
 
           {tracks.length === 0 && (
-            <p className="py-4 text-center text-xs text-[#a0937a]">
-              Nenhuma música cadastrada na playlist. Acesse a aba <b>Músicas</b> acima para adicionar faixas!
+            <p className="py-6 text-center text-xs text-[#a0937a]">
+              Nenhuma música na playlist. Acesse a aba <b>Músicas</b> para adicionar.
             </p>
           )}
         </ul>
@@ -347,4 +406,5 @@ export default function LocucaoHome() {
     </div>
   );
 }
+
 
