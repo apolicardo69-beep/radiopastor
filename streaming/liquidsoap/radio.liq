@@ -18,10 +18,16 @@ settings.harbor.bind_addrs.set(["0.0.0.0"])
 settings.init.allow_root.set(true)
 
 # ---- Variáveis de ambiente (troque em produção) ----
-harbor_password = environment.get(default="CHANGE_ME_HARBOR_PASSWORD", "HARBOR_PASSWORD")
-icecast_password = environment.get(default="CHANGE_ME_SOURCE_PASSWORD", "ICECAST_SOURCE_PASSWORD")
-icecast_host = environment.get(default="localhost", "ICECAST_HOST")
-icecast_port = int_of_string(environment.get(default="8000", "ICECAST_PORT"))
+# Liquidsoap 2.1 (Debian Bookworm) usa getenv() — retorna "" se não existir.
+def env(name, default) =
+  v = getenv(name)
+  if v == "" then default else v end
+end
+
+harbor_password = env("HARBOR_PASSWORD", "CHANGE_ME_HARBOR_PASSWORD")
+icecast_password = env("ICECAST_SOURCE_PASSWORD", "CHANGE_ME_SOURCE_PASSWORD")
+icecast_host = env("ICECAST_HOST", "localhost")
+icecast_port = int_of_string(env("ICECAST_PORT", "8000"))
 
 # ---- Fila de músicas ----
 # O serviço `playlist-sync` (apps/playlist-sync) mantém esta pasta e este
@@ -29,7 +35,8 @@ icecast_port = int_of_string(environment.get(default="8000", "ICECAST_PORT"))
 # na ordem certa. O Liquidsoap só observa o arquivo e recarrega sozinho
 # quando ele muda (reload_mode="watch") — não precisa reiniciar nada
 # quando o pastor reordena ou adiciona uma música.
-playlist_file = environment.get(default="/var/lib/radio-graca-paz/queue.m3u", "PLAYLIST_FILE")
+playlist_file = env("PLAYLIST_FILE", "/var/lib/radio-graca-paz/queue.m3u")
+
 
 radio_playlist =
   playlist(reload_mode="watch", playlist_file)
