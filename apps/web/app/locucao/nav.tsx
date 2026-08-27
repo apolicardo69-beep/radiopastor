@@ -1,6 +1,6 @@
 'use client';
 
-// Navegação otimizada para celular e desktop
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
@@ -18,51 +18,184 @@ export default function LocucaoNav({ nome }: { nome: string }) {
   const router = useRouter();
   const supabase = createClient();
 
+  const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
+  const [mostrarDicaIos, setMostrarDicaIos] = useState(false);
+  const [jaInstalado, setJaInstalado] = useState(false);
+  const [bannerFechado, setBannerFechado] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+      if (isStandalone) {
+        setJaInstalado(true);
+      }
+
+      const handleBeforeInstallPrompt = (e: Event) => {
+        e.preventDefault();
+        setPromptInstalacao(e);
+      };
+      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+      return () => {
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      };
+    }
+  }, []);
+
+  async function handleInstalarApp() {
+    if (promptInstalacao) {
+      promptInstalacao.prompt();
+      try {
+        const { outcome } = await promptInstalacao.userChoice;
+        if (outcome === 'accepted') {
+          setJaInstalado(true);
+        }
+      } catch {}
+      setPromptInstalacao(null);
+    } else {
+      setMostrarDicaIos(true);
+    }
+  }
+
   async function sair() {
     await supabase.auth.signOut();
     router.push('/entrar');
   }
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[#d9c9a8] bg-white/95 backdrop-blur-md">
-      <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118] text-xs text-white">
-            📻
-          </span>
-          <div className="leading-tight">
-            <p className="text-xs font-semibold text-[#2b2118]">{nome}</p>
-            <p className="text-[10px] text-[#7a6a52]">Console de Locução</p>
+    <>
+      {/* Modal de Instruções de Instalação (PWA) */}
+      {mostrarDicaIos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-sm rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl border border-[#d9c9a8]">
+            <button
+              onClick={() => setMostrarDicaIos(false)}
+              className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+            >
+              ✕
+            </button>
+            <img
+              src="/icons/icon-192x192.png"
+              alt="Estúdio do Pastor"
+              className="mx-auto mb-3 h-16 w-16 rounded-2xl shadow-md border border-[#d9c9a8]"
+            />
+            <h3 className="text-base font-extrabold text-[#2b2118]">Instalar Estúdio no Celular</h3>
+            
+            <div className="mt-3 rounded-2xl bg-white p-3 text-left text-xs text-[#5c4a35] leading-relaxed shadow-xs border border-[#d9c9a8]">
+              <p className="font-bold text-[#2b2118] mb-1">📱 No Android / Chrome:</p>
+              <p>Toque nos <b>3 pontinhos (⋮)</b> no canto superior do navegador e selecione <b>&quot;Instalar aplicativo&quot;</b> ou <b>&quot;Adicionar à tela inicial&quot;</b>.</p>
+              
+              <hr className="my-2 border-[#f0e6d2]" />
+              
+              <p className="font-bold text-[#2b2118] mb-1">🍎 No iPhone / Safari:</p>
+              <p>1. Toque em <b>Compartilhar</b> <span className="text-sm">⎋</span>.<br />2. Selecione <b>&quot;Adicionar à Tela de Início&quot;</b> ➕.<br />3. Toque em <b>Adicionar</b>.</p>
+            </div>
+
+            <button
+              onClick={() => setMostrarDicaIos(false)}
+              className="mt-4 w-full rounded-2xl bg-[#2b2118] py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#1a140e] transition active:scale-95"
+            >
+              Entendi, obrigado!
+            </button>
           </div>
         </div>
-        <button
-          onClick={sair}
-          className="rounded-lg px-2.5 py-1 text-xs font-semibold text-[#b3261e] hover:bg-[#b3261e]/10 active:scale-95 transition"
-        >
-          Sair
-        </button>
-      </div>
+      )}
 
-      <nav className="mx-auto flex max-w-2xl gap-1.5 overflow-x-auto px-3 pb-2 scrollbar-none [-webkit-overflow-scrolling:touch]">
-        {ITENS.map((item) => {
-          const ativo = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition active:scale-95 ${
-                ativo
-                  ? 'bg-[#2b2118] text-[#f7f1e6] shadow-sm'
-                  : 'bg-[#f0e6d2]/60 text-[#5c4a35] hover:bg-[#f0e6d2]'
-              }`}
+      <header className="sticky top-0 z-40 border-b border-[#d9c9a8] bg-white/95 backdrop-blur-md shadow-xs">
+        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <img
+              src="/icons/icon-192x192.png"
+              alt="Logo"
+              className="h-8 w-8 rounded-xl shadow-xs border border-[#d9c9a8]"
+            />
+            <div className="leading-tight">
+              <p className="text-xs font-bold text-[#2b2118]">{nome}</p>
+              <p className="text-[10px] text-[#7a6a52]">Console de Locução</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!jaInstalado && (
+              <button
+                onClick={handleInstalarApp}
+                className="flex items-center gap-1 rounded-xl bg-[#2b2118] px-2.5 py-1 text-xs font-bold text-[#f7f1e6] shadow-xs hover:bg-[#1a140e] transition active:scale-95 animate-pulse"
+                title="Instalar App do Estúdio"
+              >
+                <span>📲</span>
+                <span>Instalar App</span>
+              </button>
+            )}
+            <button
+              onClick={sair}
+              className="rounded-lg px-2 py-1 text-xs font-semibold text-[#b3261e] hover:bg-[#b3261e]/10 active:scale-95 transition"
             >
-              <span className="text-sm">{item.icone}</span>
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-    </header>
+              Sair
+            </button>
+          </div>
+        </div>
+
+        <nav className="mx-auto flex max-w-2xl gap-1.5 overflow-x-auto px-3 pb-2 scrollbar-none [-webkit-overflow-scrolling:touch]">
+          {ITENS.map((item) => {
+            const ativo = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition active:scale-95 ${
+                  ativo
+                    ? 'bg-[#2b2118] text-[#f7f1e6] shadow-sm'
+                    : 'bg-[#f0e6d2]/60 text-[#5c4a35] hover:bg-[#f0e6d2]'
+                }`}
+              >
+                <span className="text-sm">{item.icone}</span>
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      </header>
+
+      {/* Barra Flutuante de Instalação no Estúdio */}
+      {!jaInstalado && !bannerFechado && (
+        <aside aria-label="Instalar Estúdio" className="fixed bottom-3 left-3 right-3 z-40 mx-auto max-w-md animate-in slide-in-from-bottom duration-300">
+          <div className="flex items-center justify-between gap-2.5 rounded-3xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30 backdrop-blur-md">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <img
+                src="/icons/icon-192x192.png"
+                alt="App Icon"
+                className="h-10 w-10 shrink-0 rounded-2xl border border-white/20 shadow-xs"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-black text-[#f7f1e6]">
+                  Instalar Estúdio no Celular
+                </p>
+                <p className="truncate text-[10px] text-[#a0937a]">
+                  Transmita e controle a rádio direto do app
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={handleInstalarApp}
+                className="rounded-2xl bg-[#2f6b4f] px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-[#255740] transition active:scale-95 flex items-center gap-1"
+              >
+                <span>📲</span>
+                <span>Instalar</span>
+              </button>
+              <button
+                onClick={() => setBannerFechado(true)}
+                className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/70 hover:text-white"
+                title="Fechar aviso"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+    </>
   );
 }
 
