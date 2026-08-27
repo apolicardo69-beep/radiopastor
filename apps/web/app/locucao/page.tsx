@@ -35,6 +35,8 @@ export default function LocucaoHome() {
   const [musicaTocando, setMusicaTocando] = useState<Track | null>(null);
   const [estaTocandoMusica, setEstaTocandoMusica] = useState(false);
 
+  const [erroMusica, setErroMusica] = useState<string | null>(null);
+
   const audioMusicaRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
@@ -106,7 +108,10 @@ export default function LocucaoHome() {
 
   function tocarMusicaNaTransmissao(track: Track) {
     const url = getTrackUrl(track);
-    if (!url || !audioMusicaRef.current) return;
+    if (!url || !audioMusicaRef.current) {
+      setErroMusica('Link ou arquivo de áudio não encontrado para esta música.');
+      return;
+    }
 
     if (musicaTocando?.id === track.id && estaTocandoMusica) {
       audioMusicaRef.current.pause();
@@ -114,14 +119,23 @@ export default function LocucaoHome() {
       return;
     }
 
-    audioMusicaRef.current.src = url;
-    audioMusicaRef.current.play().then(() => {
+    setErroMusica(null);
+    const audioEl = audioMusicaRef.current;
+    if (url.includes('supabase.co')) {
+      audioEl.crossOrigin = 'anonymous';
+    } else {
+      audioEl.removeAttribute('crossOrigin');
+    }
+    audioEl.src = url;
+    audioEl.load();
+
+    audioEl.play().then(() => {
       setMusicaTocando(track);
       setEstaTocandoMusica(true);
-      if (audioMusicaRef.current) {
-        conectarElementoAudio(audioMusicaRef.current);
-      }
-    }).catch(() => {
+      conectarElementoAudio(audioEl);
+    }).catch((err) => {
+      console.error('Erro ao tocar áudio:', err);
+      setErroMusica('Não foi possível carregar o áudio dessa música. Verifique se o link/arquivo é válido.');
       setEstaTocandoMusica(false);
     });
   }
@@ -141,7 +155,6 @@ export default function LocucaoHome() {
       {/* Audio element oculto usado para mixagem */}
       <audio
         ref={audioMusicaRef}
-        crossOrigin="anonymous"
         onEnded={() => setEstaTocandoMusica(false)}
         onPause={() => setEstaTocandoMusica(false)}
         onPlay={() => setEstaTocandoMusica(true)}
@@ -276,6 +289,10 @@ export default function LocucaoHome() {
               Pausar
             </button>
           </div>
+        )}
+
+        {erroMusica && (
+          <p className="mb-3 rounded-lg bg-[#fbeaea] px-3 py-2 text-xs text-[#b3261e]">{erroMusica}</p>
         )}
 
         <ul className="flex flex-col gap-2">
