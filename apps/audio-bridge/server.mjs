@@ -32,9 +32,12 @@ const ICECAST_HARBOR_PORT = process.env.ICECAST_HARBOR_PORT || '8005';
 const HARBOR_PASSWORD = process.env.HARBOR_PASSWORD || 'CHANGE_ME_HARBOR_PASSWORD';
 const ICECAST_LIVE_URL = `icecast://source:${HARBOR_PASSWORD}@${ICECAST_HOST}:${ICECAST_HARBOR_PORT}/live`;
 
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
 const supabase =
-  !MOCK_AUTH && process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  !MOCK_AUTH && SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     : null;
 
 // ---------------------------------------------------------
