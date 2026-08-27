@@ -118,6 +118,7 @@ export default function ListenerPage() {
   function togglePlay() {
     const audio = audioRef.current;
     if (!audio) return;
+    setErroAudio(null);
     if (playing) {
       audio.pause();
       setPlaying(false);
@@ -126,15 +127,20 @@ export default function ListenerPage() {
       setCarregandoAudio(true);
       // Forçar recarga para pegar a ponta do stream ao vivo
       audio.src = `${STREAM_URL}?_t=${Date.now()}`;
+      audio.load();
       audio
         .play()
         .then(() => {
           setPlaying(true);
           setCarregandoAudio(false);
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error('Erro ao reproduzir stream:', err);
           setPlaying(false);
           setCarregandoAudio(false);
+          setErroAudio(
+            'Não foi possível conectar ao áudio da rádio. Verifique se o servidor de transmissão está online.'
+          );
         });
     }
   }
@@ -144,14 +150,18 @@ export default function ListenerPage() {
     const conteudo = text.trim();
     if (!conteudo) return;
     setText('');
-    await supabase.from('messages').insert({
-      author_name: name.trim() || 'Ouvinte',
-      kind: 'texto',
-      content: conteudo,
-      type: 'chat',
-      is_guest: false,
-      client_id: getClientId(),
-    });
+    try {
+      await supabase.from('messages').insert({
+        author_name: name.trim() || 'Ouvinte',
+        kind: 'texto',
+        content: conteudo,
+        type: 'chat',
+        is_guest: false,
+        client_id: getClientId(),
+      });
+    } catch (err) {
+      console.error('Erro ao enviar mensagem:', err);
+    }
   }
 
   async function alternarGravacao() {
@@ -165,29 +175,52 @@ export default function ListenerPage() {
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      setErroAudio('Permita o microfone no navegador para gravar áudio.');
+    } catch (err) {
+      console.error('Erro ao acessar microfone:', err);
+      setErroAudio('Permita o acesso ao microfone no seu navegador para gravar áudio.');
       return;
     }
+
     pedacosRef.current = [];
-    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/mp4';
-    const recorder = new MediaRecorder(stream, { mimeType: mime });
+    let options: MediaRecorderOptions = {};
+    if (typeof MediaRecorder.isTypeSupported === 'function') {
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        options = { mimeType: 'audio/webm;codecs=opus' };
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options = { mimeType: 'audio/mp4' };
+      } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+        options = { mimeType: 'audio/aac' };
+      }
+    }
+
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(stream, options);
+    } catch {
+      // Fallback sem options se o navegador for estrito
+      recorder = new MediaRecorder(stream);
+    }
+
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) pedacosRef.current.push(e.data);
     };
+
     recorder.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
-      const blob = new Blob(pedacosRef.current, { type: mime });
+      const mimeUsado = recorder.mimeType || 'audio/webm';
+      const blob = new Blob(pedacosRef.current, { type: mimeUsado });
       setEnviandoAudio(true);
       try {
-        const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+        const ext = mimeUsado.includes('mp4') ? 'mp4' : mimeUsado.includes('aac') ? 'aac' : 'webm';
         const caminho = `${getClientId()}-${Date.now()}.${ext}`;
         const { error: erroUpload } = await supabase.storage
           .from('mensagens-audio')
           .upload(caminho, blob);
-        if (erroUpload) throw erroUpload;
+        if (erroUpload) {
+          throw new Error(erroUpload.message);
+        }
         const { error: erroInsert } = await supabase.from('messages').insert({
           author_name: name.trim() || 'Ouvinte',
           kind: 'audio',
@@ -196,20 +229,29 @@ export default function ListenerPage() {
           is_guest: false,
           client_id: getClientId(),
         });
-        if (erroInsert) throw erroInsert;
-      } catch {
-        setErroAudio('Não consegui enviar o áudio. Tente novamente.');
+        if (erroInsert) throw new Error(erroInsert.message);
+      } catch (err: unknown) {
+        console.error('Erro ao enviar áudio:', err);
+        setErroAudio(
+          `Falha ao enviar áudio: ${err instanceof Error ? err.message : 'Erro no servidor'}`
+        );
       } finally {
         setEnviandoAudio(false);
       }
     };
-    recorder.start();
-    gravadorRef.current = recorder;
-    setGravando(true);
-    setTempoGravacao(0);
-    timerGravacaoRef.current = setInterval(() => {
-      setTempoGravacao((t) => t + 1);
-    }, 1000);
+
+    try {
+      recorder.start();
+      gravadorRef.current = recorder;
+      setGravando(true);
+      setTempoGravacao(0);
+      timerGravacaoRef.current = setInterval(() => {
+        setTempoGravacao((t) => t + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Erro ao iniciar gravador:', err);
+      setErroAudio('Não foi possível iniciar a gravação de áudio.');
+    }
   }
 
   function urlAudio(m: Message) {
