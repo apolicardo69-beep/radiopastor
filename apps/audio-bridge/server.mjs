@@ -20,6 +20,7 @@
 // =========================================================
 
 import { WebSocketServer } from 'ws';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 
@@ -244,10 +245,22 @@ function feed(participant, chunk) {
 }
 
 // ---------------------------------------------------------
-// WebSocket
+// HTTP & WebSocket Server
 // ---------------------------------------------------------
-const wss = new WebSocketServer({ port: PORT });
-log(`audio-bridge ouvindo em ws://0.0.0.0:${PORT}`);
+const server = http.createServer((req, res) => {
+  if (req.url === '/' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('audio-bridge OK');
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+const wss = new WebSocketServer({ server });
+server.listen(PORT, '0.0.0.0', () => {
+  log(`audio-bridge ouvindo em http/ws://0.0.0.0:${PORT}`);
+});
 
 wss.on('connection', (ws) => {
   let role = null;
