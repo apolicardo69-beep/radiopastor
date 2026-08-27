@@ -67,12 +67,7 @@ export default function ListenerPage() {
         setPromptInstalacao(e);
       };
       window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-      return () => {
-        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      };
     }
-  }, []);
 
     async function carregarSponsors() {
       const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
