@@ -35,6 +35,12 @@ export default function ListenerPage() {
   const [enviandoAudio, setEnviandoAudio] = useState(false);
   const [erroAudio, setErroAudio] = useState<string | null>(null);
   const [urlsAudio, setUrlsAudio] = useState<Record<string, string>>({});
+  
+  // Estados para PWA
+  const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
+  const [podeInstalar, setPodeInstalar] = useState(false);
+  const [mostrarDicaIos, setMostrarDicaIos] = useState(false);
+  const [jaInstalado, setJaInstalado] = useState(false);
 
   const sponsorsRef = useRef<Sponsor[]>([]);
   const trackCountRef = useRef(0);
@@ -47,6 +53,34 @@ export default function ListenerPage() {
     // Carregar nome salvo no localStorage
     const savedName = localStorage.getItem('graca_paz_user_name');
     if (savedName) setName(savedName);
+
+    // Verificar se já está rodando como app instalado
+    if (typeof window !== 'undefined') {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+      if (isStandalone) {
+        setJaInstalado(true);
+      }
+
+      // Capturar evento de instalação do Chrome / Android
+      const handleBeforeInstallPrompt = (e: Event) => {
+        e.preventDefault();
+        setPromptInstalacao(e);
+        setPodeInstalar(true);
+      };
+      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+      // Detectar iOS
+      const userAgent = window.navigator.userAgent.toLowerCase();
+      const isIos = /iphone|ipad|ipod/.test(userAgent);
+      if (isIos && !isStandalone) {
+        setPodeInstalar(true);
+      }
+
+      return () => {
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      };
+    }
+  }, []);
 
     async function carregarSponsors() {
       const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
@@ -334,6 +368,21 @@ export default function ListenerPage() {
     setTempoGravacao(0);
   }
 
+  async function handleInstalarApp() {
+    if (promptInstalacao) {
+      promptInstalacao.prompt();
+      const { outcome } = await promptInstalacao.userChoice;
+      if (outcome === 'accepted') {
+        setPodeInstalar(false);
+        setJaInstalado(true);
+      }
+      setPromptInstalacao(null);
+    } else {
+      // iOS Safari fallback
+      setMostrarDicaIos(true);
+    }
+  }
+
   function getSponsorLogoUrl(storagePath?: string | null) {
     if (!storagePath) return '';
     const { data } = supabase.storage.from('patrocinadores').getPublicUrl(storagePath);
@@ -381,13 +430,46 @@ export default function ListenerPage() {
         </div>
       )}
 
+      {/* Modal de Dica de Instalação no iOS (iPhone/iPad) */}
+      {mostrarDicaIos && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-sm rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl border border-[#d9c9a8]">
+            <button
+              onClick={() => setMostrarDicaIos(false)}
+              className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+            >
+              ✕
+            </button>
+            <img
+              src="/icons/icon-192x192.png"
+              alt="Rádio Graça & Paz"
+              className="mx-auto mb-3 h-16 w-16 rounded-2xl shadow-md border border-[#d9c9a8]"
+            />
+            <h3 className="text-base font-extrabold text-[#2b2118]">Instalar no iPhone / iPad</h3>
+            <p className="mt-2 text-xs text-[#5c4a35] leading-relaxed">
+              1. Toque no botão de <b>Compartilhar</b> <span className="text-sm">⎋</span> na barra do Safari.<br />
+              2. Role para baixo e selecione <b>&quot;Adicionar à Tela de Início&quot;</b> ➕.<br />
+              3. Toque em <b>Adicionar</b> no topo.
+            </p>
+            <button
+              onClick={() => setMostrarDicaIos(false)}
+              className="mt-4 w-full rounded-2xl bg-[#2b2118] py-2.5 text-xs font-bold text-white shadow-sm"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Topo da Rádio (Mobile Header) */}
       <header className="sticky top-0 z-30 border-b border-[#d9c9a8] bg-[#f7f1e6]/90 backdrop-blur-md px-4 py-3 shadow-xs">
         <div className="mx-auto flex max-w-md items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#2b2118] text-lg shadow-sm">
-              🕊️
-            </div>
+            <img
+              src="/icons/icon-192x192.png"
+              alt="Logo"
+              className="h-9 w-9 rounded-2xl shadow-sm border border-[#d9c9a8]"
+            />
             <div>
               <h1 className="text-base font-bold leading-tight text-[#2b2118]">
                 Rádio Graça &amp; Paz
@@ -410,6 +492,18 @@ export default function ListenerPage() {
               </div>
             </div>
           </div>
+
+          {/* Botão de Instalação PWA */}
+          {!jaInstalado && (
+            <button
+              onClick={handleInstalarApp}
+              className="flex items-center gap-1 rounded-2xl bg-[#2b2118] px-3 py-1.5 text-[11px] font-bold text-[#f7f1e6] shadow-sm hover:bg-[#1a140e] transition active:scale-95 animate-pulse"
+              title="Instalar Aplicativo da Rádio"
+            >
+              <span>📲</span>
+              <span>Baixar App</span>
+            </button>
+          )}
         </div>
       </header>
 
