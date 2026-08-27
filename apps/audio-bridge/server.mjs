@@ -19,10 +19,14 @@
 // ~1-2s de atraso. Pra uma pregação ao vivo isso é um bom negócio.
 // =========================================================
 
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
+
+if (!globalThis.WebSocket) {
+  globalThis.WebSocket = WebSocket;
+}
 
 const PORT = parseInt(process.env.PORT || '9000', 10);
 const MOCK_AUTH = process.env.MOCK_AUTH === '1';
