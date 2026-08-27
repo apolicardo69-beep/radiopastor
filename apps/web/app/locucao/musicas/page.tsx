@@ -1,8 +1,5 @@
 'use client';
 
-// Gerenciar a playlist: subir um arquivo de música do celular, ou colar um
-// link direto de áudio (mp3/wav em algum servidor). O
-// playlist-sync espelha esta tabela pro arquivo que o Liquidsoap toca de verdade.
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Track } from '@/lib/types';
@@ -20,7 +17,9 @@ export default function MusicasPage() {
   const [link, setLink] = useState('');
   const [tituloLink, setTituloLink] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [progresso, setProgresso] = useState('');
   const [erro, setErro] = useState<string | null>(null);
+  const [sucesso, setSucesso] = useState<string | null>(null);
   const [tocandoId, setTocandoId] = useState<string | null>(null);
   const inputArquivoRef = useRef<HTMLInputElement>(null);
   const audioPreviaRef = useRef<HTMLAudioElement | null>(null);
@@ -38,17 +37,13 @@ export default function MusicasPage() {
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
-      if (audioPreviaRef.current) {
-        audioPreviaRef.current.pause();
-      }
+      if (audioPreviaRef.current) audioPreviaRef.current.pause();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function getTrackUrl(track: Track): string {
-    if (track.source === 'link' && track.source_url) {
-      return track.source_url;
-    }
+    if (track.source === 'link' && track.source_url) return track.source_url;
     if (track.storage_path) {
       const { data } = supabase.storage.from('musicas').getPublicUrl(track.storage_path);
       return data.publicUrl;
@@ -58,34 +53,21 @@ export default function MusicasPage() {
 
   function alternarPrevia(track: Track) {
     const url = getTrackUrl(track);
-    if (!url) {
-      setErro('Áudio não encontrado para esta música.');
-      return;
-    }
-
+    if (!url) { setErro('Áudio não encontrado.'); return; }
     if (tocandoId === track.id) {
       audioPreviaRef.current?.pause();
       setTocandoId(null);
       return;
     }
-
     if (!audioPreviaRef.current) {
       audioPreviaRef.current = new Audio();
       audioPreviaRef.current.onended = () => setTocandoId(null);
-      audioPreviaRef.current.onerror = () => {
-        setErro('Não foi possível reproduzir este áudio. Verifique se o link ou arquivo é válido.');
-        setTocandoId(null);
-      };
+      audioPreviaRef.current.onerror = () => { setErro('Erro ao reproduzir.'); setTocandoId(null); };
     }
-
     audioPreviaRef.current.src = url;
-    audioPreviaRef.current.play().then(() => {
-      setTocandoId(track.id);
-      setErro(null);
-    }).catch(() => {
-      setErro('Erro ao tocar áudio. O navegador pode ter bloqueado ou o link é inacessível.');
-      setTocandoId(null);
-    });
+    audioPreviaRef.current.play()
+      .then(() => { setTocandoId(track.id); setErro(null); })
+      .catch(() => { setErro('O navegador bloqueou o áudio ou o link é inacessível.'); setTocandoId(null); });
   }
 
   function duracaoDoArquivo(file: File): Promise<number | null> {
@@ -99,38 +81,72 @@ export default function MusicasPage() {
   }
 
   async function proximaPosicao() {
-    return tracks.length > 0 ? Math.max(...tracks.map((t) => t.position)) + 1 : 1;
+    const { data } = await supabase.from('tracks').select('position').order('position', { ascending: false }).limit(1);
+    if (data && data.length > 0) return data[0].position + 1;
+    return 1;
   }
 
-  async function enviarArquivo(file: File) {
+  async function enviarVariosArquivos(files: FileList) {
     setErro(null);
+    setSucesso(null);
     setEnviando(true);
-    try {
-      const duracao = await duracaoDoArquivo(file);
-      const caminho = `${crypto.randomUUID()}-${file.name}`;
-      const { error: erroUpload } = await supabase.storage.from('musicas').upload(caminho, file);
-      if (erroUpload) throw erroUpload;
-      const posicao = await proximaPosicao();
-      const { error: erroInsert } = await supabase.from('tracks').insert({
-        title: file.name.replace(/\.[^.]+$/, ''),
-        storage_path: caminho,
-        source: 'upload',
-        duration_seconds: duracao,
-        position: posicao,
-      });
-      if (erroInsert) throw erroInsert;
-    } catch {
-      setErro('Não consegui adicionar essa música. Tente de novo.');
-    } finally {
-      setEnviando(false);
-      if (inputArquivoRef.current) inputArquivoRef.current.value = '';
+
+    const total = files.length;
+    let enviados = 0;
+    let erros = 0;
+    const detalhesErro: string[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setProgresso(`Enviando ${i + 1} de ${total}: ${file.name}...`);
+
+      try {
+        const duracao = await duracaoDoArquivo(file);
+        const caminho = `${crypto.randomUUID()}-${file.name}`;
+        const { error: erroUpload } = await supabase.storage.from('musicas').upload(caminho, file);
+        if (erroUpload) {
+          detalhesErro.push(`${file.name}: ${erroUpload.message}`);
+          erros++;
+          continue;
+        }
+        const posicao = await proximaPosicao();
+        const { error: erroInsert } = await supabase.from('tracks').insert({
+          title: file.name.replace(/\.[^.]+$/, ''),
+          storage_path: caminho,
+          source: 'upload',
+          duration_seconds: duracao,
+          position: posicao,
+        });
+        if (erroInsert) {
+          detalhesErro.push(`${file.name}: ${erroInsert.message}`);
+          erros++;
+          continue;
+        }
+        enviados++;
+      } catch (e) {
+        detalhesErro.push(`${file.name}: ${e instanceof Error ? e.message : 'erro desconhecido'}`);
+        erros++;
+      }
     }
+
+    setProgresso('');
+    if (enviados > 0) {
+      setSucesso(`✅ ${enviados} música${enviados > 1 ? 's adicionadas' : ' adicionada'} com sucesso!`);
+    }
+    if (erros > 0) {
+      setErro(`❌ ${erros} arquivo${erros > 1 ? 's falharam' : ' falhou'}: ${detalhesErro.join('; ')}`);
+    }
+
+    setEnviando(false);
+    if (inputArquivoRef.current) inputArquivoRef.current.value = '';
+    await carregar();
   }
 
   async function adicionarLink(e: React.FormEvent) {
     e.preventDefault();
     if (!link.trim()) return;
     setErro(null);
+    setSucesso(null);
     setEnviando(true);
     try {
       const posicao = await proximaPosicao();
@@ -140,24 +156,20 @@ export default function MusicasPage() {
         source: 'link',
         position: posicao,
       });
-      if (error) throw error;
+      if (error) throw new Error(error.message);
       setLink('');
       setTituloLink('');
-    } catch {
-      setErro('Não consegui adicionar esse link. Confira se é um link direto de áudio (.mp3 ou .wav).');
+      setSucesso('✅ Música adicionada à playlist!');
+    } catch (e) {
+      setErro(`Não consegui adicionar: ${e instanceof Error ? e.message : 'erro desconhecido'}`);
     } finally {
       setEnviando(false);
     }
   }
 
   async function remover(track: Track) {
-    if (tocandoId === track.id) {
-      audioPreviaRef.current?.pause();
-      setTocandoId(null);
-    }
-    if (track.storage_path) {
-      await supabase.storage.from('musicas').remove([track.storage_path]);
-    }
+    if (tocandoId === track.id) { audioPreviaRef.current?.pause(); setTocandoId(null); }
+    if (track.storage_path) await supabase.storage.from('musicas').remove([track.storage_path]);
     await supabase.from('tracks').delete().eq('id', track.id);
   }
 
@@ -175,22 +187,27 @@ export default function MusicasPage() {
   return (
     <div className="flex flex-col gap-6">
       <section className="rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="mb-2 font-semibold">📁 Adicionar música do seu celular/computador</h2>
-        <p className="mb-3 text-xs text-[#7a6a52]">Selecione um arquivo de áudio (.mp3, .wav, .m4a) para enviar.</p>
+        <h2 className="mb-2 font-semibold">📁 Adicionar músicas do celular/computador</h2>
+        <p className="mb-3 text-xs text-[#7a6a52]">
+          Selecione <strong>um ou vários</strong> arquivos de áudio (.mp3, .wav, .m4a) de uma só vez.
+        </p>
         <input
           ref={inputArquivoRef}
           type="file"
           accept="audio/*"
+          multiple
           disabled={enviando}
-          onChange={(e) => e.target.files?.[0] && enviarArquivo(e.target.files[0])}
+          onChange={(e) => e.target.files && e.target.files.length > 0 && enviarVariosArquivos(e.target.files)}
           className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#2b2118] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#f7f1e6] hover:file:bg-[#43362a]"
         />
-        {enviando && <p className="mt-2 text-xs font-medium text-[#7a6a52]">Enviando arquivo...</p>}
+        {progresso && (
+          <p className="mt-2 text-xs font-medium text-[#2f6b4f]">{progresso}</p>
+        )}
       </section>
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="mb-2 font-semibold">🔗 Adicionar por link direto de áudio</h2>
-        <p className="mb-3 text-xs text-[#7a6a52]">Cole o link de uma música na internet (terminando em .mp3 ou .wav).</p>
+        <p className="mb-3 text-xs text-[#7a6a52]">Cole o link de um arquivo de áudio na internet (.mp3 ou .wav).</p>
         <form onSubmit={adicionarLink} className="flex flex-col gap-3">
           <input
             value={tituloLink}
@@ -214,6 +231,7 @@ export default function MusicasPage() {
         </form>
       </section>
 
+      {sucesso && <p className="rounded-lg bg-[#eaf3ec] px-3 py-2 text-sm font-medium text-[#2f6b4f]">{sucesso}</p>}
       {erro && <p className="rounded-lg bg-[#fbeaea] px-3 py-2 text-sm text-[#b3261e]">{erro}</p>}
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">
@@ -228,56 +246,36 @@ export default function MusicasPage() {
             return (
               <li
                 key={track.id}
-                className={`flex flex-col gap-2 rounded-xl p-3 transition ${
+                className={`flex items-center gap-3 rounded-xl p-3 transition ${
                   estaTocando ? 'border border-[#2b2118] bg-[#e8dac0]' : 'bg-[#f0e6d2]'
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex flex-col gap-0.5">
-                    <button
-                      onClick={() => mover(i, -1)}
-                      disabled={i === 0}
-                      className="rounded bg-white/50 px-1 text-xs disabled:opacity-30"
-                      title="Mover para cima"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      onClick={() => mover(i, 1)}
-                      disabled={i === tracks.length - 1}
-                      className="rounded bg-white/50 px-1 text-xs disabled:opacity-30"
-                      title="Mover para baixo"
-                    >
-                      ▼
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => alternarPrevia(track)}
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg shadow-sm transition ${
-                      estaTocando ? 'bg-[#b3261e] text-white' : 'bg-[#2b2118] text-white'
-                    }`}
-                    title={estaTocando ? 'Pausar prévia' : 'Ouvir prévia'}
-                  >
-                    {estaTocando ? '⏸' : '▶'}
-                  </button>
-
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-[#2b2118]">{track.title}</p>
-                    <p className="text-xs text-[#7a6a52]">
-                      {track.source === 'link' ? '🌐 Link' : '📁 Arquivo'} · {formatarDuracao(track.duration_seconds)}
-                    </p>
-                  </div>
-
-                  <button
-                    onClick={() => remover(track)}
-                    className="rounded-lg px-2 py-1 text-xs font-semibold text-[#b3261e] hover:bg-[#b3261e]/10"
-                    title="Remover música"
-                  >
-                    Remover
-                  </button>
+                <div className="flex flex-col gap-0.5">
+                  <button onClick={() => mover(i, -1)} disabled={i === 0}
+                    className="rounded bg-white/50 px-1 text-xs disabled:opacity-30" title="Mover para cima">▲</button>
+                  <button onClick={() => mover(i, 1)} disabled={i === tracks.length - 1}
+                    className="rounded bg-white/50 px-1 text-xs disabled:opacity-30" title="Mover para baixo">▼</button>
                 </div>
+
+                <button type="button" onClick={() => alternarPrevia(track)}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg shadow-sm transition ${
+                    estaTocando ? 'bg-[#b3261e] text-white' : 'bg-[#2b2118] text-white'
+                  }`}
+                  title={estaTocando ? 'Pausar prévia' : 'Ouvir prévia'}>
+                  {estaTocando ? '⏸' : '▶'}
+                </button>
+
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-[#2b2118]">{track.title}</p>
+                  <p className="text-xs text-[#7a6a52]">
+                    {track.source === 'link' ? '🌐 Link' : '📁 Arquivo'} · {formatarDuracao(track.duration_seconds)}
+                  </p>
+                </div>
+
+                <button onClick={() => remover(track)}
+                  className="rounded-lg px-2 py-1 text-xs font-semibold text-[#b3261e] hover:bg-[#b3261e]/10" title="Remover">
+                  Remover
+                </button>
               </li>
             );
           })}
@@ -292,4 +290,3 @@ export default function MusicasPage() {
     </div>
   );
 }
-
