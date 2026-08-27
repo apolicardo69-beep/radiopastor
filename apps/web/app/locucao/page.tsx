@@ -147,6 +147,17 @@ export default function LocucaoHome() {
     }
   }
 
+  function handleVolumeMusica(novoVolume: number) {
+    alterarVolumeMusica(novoVolume);
+    if (audioMusicaRef.current) {
+      audioMusicaRef.current.volume = Math.min(1, Math.max(0, novoVolume));
+    }
+  }
+
+  function handleVolumeMic(novoVolume: number) {
+    alterarVolumeMic(novoVolume);
+  }
+
   const noAr = status === 'ao_vivo';
   const ocupado = status === 'pedindo_microfone' || status === 'conectando';
 
@@ -225,12 +236,12 @@ export default function LocucaoHome() {
               max="1.5"
               step="0.05"
               value={volumeMic}
-              onChange={(e) => alterarVolumeMic(parseFloat(e.target.value))}
+              onChange={(e) => handleVolumeMic(parseFloat(e.target.value))}
               className="mt-2.5 h-2 w-full cursor-pointer accent-[#2b2118]"
             />
             <div className="mt-2 flex gap-1.5">
               <button
-                onClick={() => alterarVolumeMic(0)}
+                onClick={() => handleVolumeMic(0)}
                 className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
                   volumeMic === 0 ? 'bg-[#b3261e] text-white' : 'bg-white/80 text-[#5c4a35]'
                 }`}
@@ -238,7 +249,7 @@ export default function LocucaoHome() {
                 Mudo
               </button>
               <button
-                onClick={() => alterarVolumeMic(1.0)}
+                onClick={() => handleVolumeMic(1.0)}
                 className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
                   volumeMic >= 0.95 && volumeMic <= 1.05
                     ? 'bg-[#2b2118] text-white'
@@ -248,7 +259,7 @@ export default function LocucaoHome() {
                 Normal (100%)
               </button>
               <button
-                onClick={() => alterarVolumeMic(1.4)}
+                onClick={() => handleVolumeMic(1.4)}
                 className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
                   volumeMic > 1.1 ? 'bg-[#2b2118] text-white' : 'bg-white/80 text-[#5c4a35]'
                 }`}
@@ -274,12 +285,12 @@ export default function LocucaoHome() {
               max="1"
               step="0.05"
               value={volumeMusica}
-              onChange={(e) => alterarVolumeMusica(parseFloat(e.target.value))}
+              onChange={(e) => handleVolumeMusica(parseFloat(e.target.value))}
               className="mt-2.5 h-2 w-full cursor-pointer accent-[#2b2118]"
             />
             <div className="mt-2 flex gap-1.5">
               <button
-                onClick={() => alterarVolumeMusica(0)}
+                onClick={() => handleVolumeMusica(0)}
                 className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
                   volumeMusica === 0 ? 'bg-[#b3261e] text-white' : 'bg-white/80 text-[#5c4a35]'
                 }`}
@@ -287,7 +298,7 @@ export default function LocucaoHome() {
                 Mudo
               </button>
               <button
-                onClick={() => alterarVolumeMusica(0.25)}
+                onClick={() => handleVolumeMusica(0.25)}
                 className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
                   volumeMusica >= 0.2 && volumeMusica <= 0.3
                     ? 'bg-[#2b2118] text-white'
@@ -297,7 +308,7 @@ export default function LocucaoHome() {
                 Fundo (25%)
               </button>
               <button
-                onClick={() => alterarVolumeMusica(0.85)}
+                onClick={() => handleVolumeMusica(0.85)}
                 className={`flex-1 rounded-lg py-1 text-[11px] font-semibold transition active:scale-95 ${
                   volumeMusica >= 0.8 ? 'bg-[#2b2118] text-white' : 'bg-white/80 text-[#5c4a35]'
                 }`}

@@ -26,6 +26,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const micGainNodeRef = useRef<GainNode | null>(null);
   const musicGainNodeRef = useRef<GainNode | null>(null);
   const musicSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const connectedAudioElRef = useRef<HTMLAudioElement | null>(null);
 
   const parar = useCallback(() => {
     recorderRef.current?.stop();
@@ -43,6 +44,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     micGainNodeRef.current = null;
     musicGainNodeRef.current = null;
     musicSourceNodeRef.current = null;
+    connectedAudioElRef.current = null;
 
     setStatus('parado');
   }, []);
@@ -61,39 +63,48 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const conectarElementoAudio = useCallback((audioEl: HTMLAudioElement) => {
     if (!audioCtxRef.current || !destNodeRef.current) return;
     try {
-      if (musicSourceNodeRef.current) {
-        try { musicSourceNodeRef.current.disconnect(); } catch {}
-      }
       const audioCtx = audioCtxRef.current;
-      const source = audioCtx.createMediaElementSource(audioEl);
-      const musicGain = ctxCreateGain(audioCtx, volumeMusica);
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
 
-      source.connect(musicGain);
-      musicGain.connect(destNodeRef.current);
-      source.connect(audioCtx.destination);
+      // Evita reconectar o mesmo elemento repetidas vezes se já conectado ao AudioContext
+      if (connectedAudioElRef.current === audioEl && musicGainNodeRef.current) {
+        musicGainNodeRef.current.gain.value = volumeMusica;
+        return;
+      }
 
-      musicGainNodeRef.current = musicGain;
-      musicSourceNodeRef.current = source;
-    } catch {}
+      if (!musicSourceNodeRef.current) {
+        const source = audioCtx.createMediaElementSource(audioEl);
+        const musicGain = audioCtx.createGain();
+        musicGain.gain.value = volumeMusica;
+
+        source.connect(musicGain);
+        musicGain.connect(destNodeRef.current);
+        source.connect(audioCtx.destination);
+
+        musicGainNodeRef.current = musicGain;
+        musicSourceNodeRef.current = source;
+        connectedAudioElRef.current = audioEl;
+      } else if (musicGainNodeRef.current) {
+        musicGainNodeRef.current.gain.value = volumeMusica;
+      }
+    } catch (e) {
+      console.warn('[AUDIO BROADCAST] Aviso ao conectar elemento de áudio ao mixer:', e);
+    }
   }, [volumeMusica]);
-
-  function ctxCreateGain(ctx: AudioContext, val: number) {
-    const g = ctx.createGain();
-    g.gain.value = val;
-    return g;
-  }
 
   const alterarVolumeMic = useCallback((novoVolume: number) => {
     setVolumeMic(novoVolume);
-    if (micGainNodeRef.current) {
-      micGainNodeRef.current.gain.value = novoVolume;
+    if (micGainNodeRef.current && audioCtxRef.current) {
+      micGainNodeRef.current.gain.setValueAtTime(novoVolume, audioCtxRef.current.currentTime);
     }
   }, []);
 
   const alterarVolumeMusica = useCallback((novoVolume: number) => {
     setVolumeMusica(novoVolume);
-    if (musicGainNodeRef.current) {
-      musicGainNodeRef.current.gain.value = novoVolume;
+    if (musicGainNodeRef.current && audioCtxRef.current) {
+      musicGainNodeRef.current.gain.setValueAtTime(novoVolume, audioCtxRef.current.currentTime);
     }
   }, []);
 
