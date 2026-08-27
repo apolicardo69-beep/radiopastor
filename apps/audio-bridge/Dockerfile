@@ -12,7 +12,6 @@ COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 COPY server.mjs ./
 
-ENV PORT=9000
 EXPOSE 9000
 
 CMD ["node", "server.mjs"]
