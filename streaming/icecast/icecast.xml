@@ -1,0 +1,65 @@
+<icecast>
+    <location>Console Graça e Paz</location>
+    <admin>admin@example.com</admin>
+
+    <limits>
+        <clients>1500</clients>
+        <sources>3</sources>
+        <!-- queue-size/burst-size baixos de propósito: valores grandes (o
+             padrão de exemplo do Icecast costuma vir com 512KB) empurram o
+             atraso da locução ao vivo pra dezenas de segundos. Testado neste
+             protótipo com esses valores menores. -->
+        <queue-size>131072</queue-size>
+        <client-timeout>30</client-timeout>
+        <header-timeout>15</header-timeout>
+        <source-timeout>10</source-timeout>
+        <burst-on-connect>1</burst-on-connect>
+        <burst-size>32768</burst-size>
+    </limits>
+
+    <authentication>
+        <!-- TROQUE ESTAS SENHAS antes de subir em produção (Railway).
+             O Liquidsoap e o audio-bridge usam "source-password" pra
+             publicar áudio; ninguém além deles precisa saber essa senha. -->
+        <source-password>CHANGE_ME_SOURCE_PASSWORD</source-password>
+        <relay-password>CHANGE_ME_RELAY_PASSWORD</relay-password>
+        <admin-user>admin</admin-user>
+        <admin-password>CHANGE_ME_ADMIN_PASSWORD</admin-password>
+    </authentication>
+
+    <hostname>localhost</hostname>
+
+    <listen-socket>
+        <port>8000</port>
+    </listen-socket>
+
+    <fileserve>1</fileserve>
+
+    <paths>
+        <basedir>/usr/share/icecast2</basedir>
+        <logdir>/var/log/icecast2</logdir>
+        <webroot>/usr/share/icecast2/web</webroot>
+        <adminroot>/usr/share/icecast2/admin</adminroot>
+        <alias source="/" destination="/status.xsl"/>
+    </paths>
+
+    <logging>
+        <accesslog>access.log</accesslog>
+        <errorlog>error.log</errorlog>
+        <loglevel>3</loglevel>
+        <logsize>10000</logsize>
+    </logging>
+
+    <security>
+        <chroot>0</chroot>
+        <!-- Necessário quando o Icecast roda instalado via apt (Debian/Ubuntu)
+             e é iniciado como root, como neste ambiente de teste. Se for
+             rodar em produção com uma imagem Docker oficial de Icecast, o
+             próprio entrypoint da imagem já cuida disso — remova este bloco
+             nesse caso (ou ele vai reclamar de usuário/grupo inexistente). -->
+        <changeowner>
+            <user>icecast2</user>
+            <group>icecast</group>
+        </changeowner>
+    </security>
+</icecast>

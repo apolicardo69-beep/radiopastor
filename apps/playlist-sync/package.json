@@ -1,0 +1,12 @@
+{
+  "name": "playlist-sync",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.4"
+  }
+}

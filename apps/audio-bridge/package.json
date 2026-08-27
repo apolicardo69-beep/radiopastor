@@ -1,0 +1,17 @@
+{
+  "name": "audio-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "MOCK_AUTH=1 node server.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

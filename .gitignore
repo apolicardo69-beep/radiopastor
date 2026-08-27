@@ -1,0 +1,38 @@
+# Environment and secrets (NEVER commit)
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+!.env.local.example
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Testing
+coverage/
+apps/audio-bridge/test/*.wav
+
+# Next.js build outputs
+.next/
+**/.next/
+out/
+**/out/
+build/
+**/build/
+dist/
+**/dist/
+
+# Misc & OS
+.DS_Store
+*.pem
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vercel
+

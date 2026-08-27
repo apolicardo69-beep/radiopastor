@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><title>bridge test harness</title></head>
+<body>
+<div id="status">idle</div>
+<script>
+  window.startBroadcast = async function (wsUrl, role, token) {
+    const status = document.getElementById('status');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    await new Promise((resolve, reject) => {
+      ws.onopen = () => { ws.send(JSON.stringify({ role, token })); resolve(); };
+      ws.onerror = reject;
+    });
+
+    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    recorder.ondataavailable = async (e) => {
+      if (e.data && e.data.size > 0) {
+        const buf = await e.data.arrayBuffer();
+        if (ws.readyState === WebSocket.OPEN) ws.send(buf);
+      }
+    };
+    recorder.start(250); // manda um pedaço a cada 250ms
+    status.textContent = 'streaming';
+    window.__recorder = recorder;
+    window.__ws = ws;
+    return true;
+  };
+
+  window.stopBroadcast = function () {
+    window.__recorder?.stop();
+    window.__ws?.close();
+    document.getElementById('status').textContent = 'stopped';
+  };
+</script>
+</body>
+</html>

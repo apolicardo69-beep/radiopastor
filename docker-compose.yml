@@ -1,0 +1,53 @@
+# Sobe o Icecast + Liquidsoap/playlist-sync + audio-bridge juntos, pra
+# testar o streaming completo na sua própria máquina antes de mandar pro
+# Railway. O app Next.js (apps/web) roda separado com `npm run dev` — ele
+# não precisa de container, só das variáveis de ambiente apontando pra cá.
+#
+# Uso: copie .env.example pra .env, preencha as senhas e as credenciais do
+# Supabase, e rode `docker compose up --build`.
+services:
+  icecast:
+    build: ./streaming/icecast
+    ports:
+      - "8000:8000"
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD}
+      ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:-}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD}
+    restart: unless-stopped
+
+  liquidsoap:
+    build:
+      context: .
+      dockerfile: streaming/liquidsoap/Dockerfile
+    depends_on:
+      - icecast
+    ports:
+      - "8005:8005"
+    environment:
+      # HARBOR_PASSWORD protege a entrada /live (só o audio-bridge pode
+      # publicar nela); ICECAST_SOURCE_PASSWORD é a senha que o PRÓPRIO
+      # Liquidsoap usa pra publicar a saída /radio no Icecast — são dois
+      # segredos diferentes, mesmo que pareçam parecidos.
+      HARBOR_PASSWORD: ${HARBOR_PASSWORD}
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD}
+      ICECAST_HOST: icecast
+      ICECAST_PORT: 8000
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    restart: unless-stopped
+
+  audio-bridge:
+    build: ./apps/audio-bridge
+    depends_on:
+      - liquidsoap
+    ports:
+      - "9000:9000"
+    environment:
+      PORT: 9000
+      ICECAST_HOST: icecast
+      ICECAST_HARBOR_PORT: 8005
+      HARBOR_PASSWORD: ${HARBOR_PASSWORD}
+      SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    restart: unless-stopped
