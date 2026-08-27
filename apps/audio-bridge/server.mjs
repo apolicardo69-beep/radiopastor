@@ -248,13 +248,8 @@ function feed(participant, chunk) {
 // HTTP & WebSocket Server
 // ---------------------------------------------------------
 const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url === '/health') {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('audio-bridge OK');
-    return;
-  }
-  res.writeHead(404);
-  res.end();
+  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('audio-bridge OK');
 });
 
 const wss = new WebSocketServer({ server });
