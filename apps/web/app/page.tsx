@@ -165,25 +165,38 @@ export default function ListenerPage() {
   }
 
   async function alternarGravacao() {
+    console.log('[AUDIO] alternarGravacao chamado, gravando=', gravando);
     if (gravando) {
+      console.log('[AUDIO] Parando gravação...');
       if (timerGravacaoRef.current) clearInterval(timerGravacaoRef.current);
       gravadorRef.current?.stop();
       setGravando(false);
       return;
     }
     setErroAudio(null);
+
+    // Verificar se o navegador suporta getUserMedia
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const msg = 'Seu navegador não suporta gravação de áudio. Use Chrome ou Firefox.';
+      console.error('[AUDIO]', msg);
+      setErroAudio(msg);
+      return;
+    }
+
     let stream: MediaStream;
     try {
+      console.log('[AUDIO] Solicitando acesso ao microfone...');
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[AUDIO] Microfone concedido, tracks:', stream.getAudioTracks().length);
     } catch (err) {
-      console.error('Erro ao acessar microfone:', err);
+      console.error('[AUDIO] Erro ao acessar microfone:', err);
       setErroAudio('Permita o acesso ao microfone no seu navegador para gravar áudio.');
       return;
     }
 
     pedacosRef.current = [];
     let options: MediaRecorderOptions = {};
-    if (typeof MediaRecorder.isTypeSupported === 'function') {
+    if (typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function') {
       if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         options = { mimeType: 'audio/webm;codecs=opus' };
       } else if (MediaRecorder.isTypeSupported('audio/webm')) {
@@ -194,33 +207,52 @@ export default function ListenerPage() {
         options = { mimeType: 'audio/aac' };
       }
     }
+    console.log('[AUDIO] MIME escolhido:', options.mimeType || '(padrão do navegador)');
 
     let recorder: MediaRecorder;
     try {
       recorder = new MediaRecorder(stream, options);
     } catch {
       // Fallback sem options se o navegador for estrito
+      console.log('[AUDIO] Fallback: criando MediaRecorder sem options');
       recorder = new MediaRecorder(stream);
     }
 
     recorder.ondataavailable = (e) => {
+      console.log('[AUDIO] ondataavailable, tamanho:', e.data.size);
       if (e.data.size > 0) pedacosRef.current.push(e.data);
     };
 
+    recorder.onerror = (e) => {
+      console.error('[AUDIO] MediaRecorder erro:', e);
+      setErroAudio('Erro durante a gravação de áudio.');
+    };
+
     recorder.onstop = async () => {
+      console.log('[AUDIO] onstop, pedaços:', pedacosRef.current.length);
       stream.getTracks().forEach((t) => t.stop());
       const mimeUsado = recorder.mimeType || 'audio/webm';
       const blob = new Blob(pedacosRef.current, { type: mimeUsado });
+      console.log('[AUDIO] Blob criado, tamanho:', blob.size, 'tipo:', blob.type);
+
+      if (blob.size === 0) {
+        setErroAudio('Gravação vazia. Tente segurar o botão por mais tempo.');
+        return;
+      }
+
       setEnviandoAudio(true);
       try {
         const ext = mimeUsado.includes('mp4') ? 'mp4' : mimeUsado.includes('aac') ? 'aac' : 'webm';
         const caminho = `${getClientId()}-${Date.now()}.${ext}`;
+        console.log('[AUDIO] Fazendo upload para:', caminho);
         const { error: erroUpload } = await supabase.storage
           .from('mensagens-audio')
-          .upload(caminho, blob);
+          .upload(caminho, blob, { contentType: mimeUsado });
         if (erroUpload) {
+          console.error('[AUDIO] Erro upload:', erroUpload);
           throw new Error(erroUpload.message);
         }
+        console.log('[AUDIO] Upload OK, inserindo mensagem...');
         const { error: erroInsert } = await supabase.from('messages').insert({
           author_name: name.trim() || 'Ouvinte',
           kind: 'audio',
@@ -229,9 +261,13 @@ export default function ListenerPage() {
           is_guest: false,
           client_id: getClientId(),
         });
-        if (erroInsert) throw new Error(erroInsert.message);
+        if (erroInsert) {
+          console.error('[AUDIO] Erro insert:', erroInsert);
+          throw new Error(erroInsert.message);
+        }
+        console.log('[AUDIO] ✅ Mensagem de áudio enviada com sucesso!');
       } catch (err: unknown) {
-        console.error('Erro ao enviar áudio:', err);
+        console.error('[AUDIO] Erro ao enviar áudio:', err);
         setErroAudio(
           `Falha ao enviar áudio: ${err instanceof Error ? err.message : 'Erro no servidor'}`
         );
@@ -242,6 +278,7 @@ export default function ListenerPage() {
 
     try {
       recorder.start();
+      console.log('[AUDIO] ✅ Gravação iniciada!');
       gravadorRef.current = recorder;
       setGravando(true);
       setTempoGravacao(0);
@@ -249,17 +286,27 @@ export default function ListenerPage() {
         setTempoGravacao((t) => t + 1);
       }, 1000);
     } catch (err) {
-      console.error('Erro ao iniciar gravador:', err);
+      console.error('[AUDIO] Erro ao iniciar gravador:', err);
+      stream.getTracks().forEach((t) => t.stop());
       setErroAudio('Não foi possível iniciar a gravação de áudio.');
     }
   }
 
-  function urlAudio(m: Message) {
-    if (!m.audio_storage_path) return undefined;
-    if (urlsAudio[m.id]) return urlsAudio[m.id];
-    const { data } = supabase.storage.from('mensagens-audio').getPublicUrl(m.audio_storage_path);
-    setUrlsAudio((atual) => ({ ...atual, [m.id]: data.publicUrl }));
+  function getAudioUrl(storagePath?: string | null) {
+    if (!storagePath) return '';
+    const { data } = supabase.storage.from('mensagens-audio').getPublicUrl(storagePath);
     return data.publicUrl;
+  }
+
+  function cancelarGravacao() {
+    if (timerGravacaoRef.current) clearInterval(timerGravacaoRef.current);
+    if (gravadorRef.current && gravadorRef.current.state !== 'inactive') {
+      gravadorRef.current.onstop = null;
+      gravadorRef.current.stop();
+      gravadorRef.current.stream.getTracks().forEach((t) => t.stop());
+    }
+    setGravando(false);
+    setTempoGravacao(0);
   }
 
   return (
@@ -390,13 +437,14 @@ export default function ListenerPage() {
           >
             {messages.map((m) => {
               const eMeu = m.client_id === getClientId();
+              const audioSrc = m.kind === 'audio' ? getAudioUrl(m.audio_storage_path) : '';
               return (
                 <div
                   key={m.id}
                   className={`flex flex-col rounded-2xl px-3.5 py-2 transition ${
                     eMeu
-                      ? 'ml-auto max-w-[85%] bg-[#2b2118] text-[#f7f1e6]'
-                      : 'mr-auto max-w-[85%] bg-[#f0e6d2] text-[#2b2118]'
+                      ? 'ml-auto max-w-[88%] bg-[#2b2118] text-[#f7f1e6]'
+                      : 'mr-auto max-w-[88%] bg-[#f0e6d2] text-[#2b2118]'
                   }`}
                 >
                   <div className="flex items-center gap-1.5 text-[11px] font-semibold opacity-80">
@@ -413,11 +461,17 @@ export default function ListenerPage() {
                     )}
                   </div>
                   {m.kind === 'audio' ? (
-                    <audio
-                      controls
-                      src={urlAudio(m)}
-                      className="mt-1.5 h-8 w-full max-w-[220px]"
-                    />
+                    <div className="mt-1.5 flex flex-col gap-1">
+                      <div className="flex items-center gap-1 text-[11px] opacity-75">
+                        <span>🎙️ Mensagem de voz</span>
+                      </div>
+                      <audio
+                        controls
+                        src={audioSrc}
+                        preload="metadata"
+                        className="h-9 w-full max-w-[240px] rounded-lg"
+                      />
+                    </div>
                   ) : (
                     <p className="mt-0.5 text-xs leading-relaxed break-words">{m.content}</p>
                   )}
@@ -432,12 +486,12 @@ export default function ListenerPage() {
           </div>
 
           {erroAudio && (
-            <p className="my-1 rounded-lg bg-[#fbeaea] px-2 py-1 text-center text-xs text-[#b3261e]">
-              {erroAudio}
+            <p className="my-1 rounded-lg bg-[#fbeaea] px-2.5 py-1.5 text-center text-xs font-semibold text-[#b3261e]">
+              ⚠️ {erroAudio}
             </p>
           )}
 
-          {/* Formulário de Envio Mobile-first */}
+          {/* Barra de Gravação Ativa ou Formulário de Envio */}
           <div className="mt-3 flex flex-col gap-2 border-t border-[#f0e6d2] pt-2">
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-semibold text-[#7a6a52]">Seu nome:</span>
@@ -449,38 +503,71 @@ export default function ListenerPage() {
               />
             </div>
 
-            <form onSubmit={enviarMensagem} className="flex items-center gap-1.5">
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Escreva uma mensagem..."
-                className="flex-1 rounded-2xl border border-[#d9c9a8] bg-white px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
-              />
+            {gravando ? (
+              /* Interface Clara de Gravação em Andamento */
+              <div className="flex items-center justify-between gap-2 rounded-2xl bg-[#b3261e]/10 p-2 border border-[#b3261e]/20 animate-in fade-in">
+                <div className="flex items-center gap-2 pl-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#b3261e] opacity-75" />
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-[#b3261e]" />
+                  </span>
+                  <span className="text-xs font-bold text-[#b3261e]">
+                    Gravando {tempoGravacao}s
+                  </span>
+                </div>
 
-              {/* Botão Gravar Áudio */}
-              <button
-                type="button"
-                onClick={alternarGravacao}
-                disabled={enviandoAudio}
-                title={gravando ? 'Parar gravação' : 'Gravar áudio'}
-                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base transition active:scale-90 ${
-                  gravando
-                    ? 'animate-pulse bg-[#b3261e] text-white shadow-md'
-                    : 'bg-[#f0e6d2] text-[#5c4a35] hover:bg-[#e4d6be]'
-                }`}
-              >
-                {enviandoAudio ? '⏳' : gravando ? `${tempoGravacao}s` : '🎤'}
-              </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={cancelarGravacao}
+                    className="rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-[#7a6a52] hover:bg-gray-100 transition active:scale-95"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={alternarGravacao}
+                    disabled={enviandoAudio}
+                    className="rounded-xl bg-[#b3261e] px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-[#8f1e17] transition active:scale-95 flex items-center gap-1"
+                  >
+                    {enviandoAudio ? 'Enviando...' : '✓ Enviar Áudio'}
+                  </button>
+                </div>
+              </div>
+            ) : enviandoAudio ? (
+              <div className="flex items-center justify-center gap-2 rounded-2xl bg-[#f0e6d2] p-2.5 text-xs font-bold text-[#5c4a35]">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                Enviando áudio para o bate-papo...
+              </div>
+            ) : (
+              <form onSubmit={enviarMensagem} className="flex items-center gap-1.5">
+                <input
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Escreva uma mensagem..."
+                  className="flex-1 rounded-2xl border border-[#d9c9a8] bg-white px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
+                />
 
-              {/* Botão Enviar Texto */}
-              <button
-                type="submit"
-                disabled={!text.trim()}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#2b2118] text-sm text-[#f7f1e6] shadow-sm disabled:opacity-40 transition active:scale-90"
-              >
-                ➤
-              </button>
-            </form>
+                {/* Botão Gravar Áudio */}
+                <button
+                  type="button"
+                  onClick={alternarGravacao}
+                  title="Gravar áudio"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#f0e6d2] text-[#5c4a35] text-base hover:bg-[#e4d6be] transition active:scale-90 shadow-xs"
+                >
+                  🎤
+                </button>
+
+                {/* Botão Enviar Texto */}
+                <button
+                  type="submit"
+                  disabled={!text.trim()}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#2b2118] text-sm text-[#f7f1e6] shadow-sm disabled:opacity-40 transition active:scale-90"
+                >
+                  ➤
+                </button>
+              </form>
+            )}
           </div>
         </section>
       </main>

@@ -42,10 +42,10 @@ export default function MensagensPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function obterUrlAudio(m: Message) {
-    if (!m.audio_storage_path || urlsAudio[m.id]) return;
-    const { data } = supabase.storage.from('mensagens-audio').getPublicUrl(m.audio_storage_path);
-    setUrlsAudio((atual) => ({ ...atual, [m.id]: data.publicUrl }));
+  function getAudioUrl(storagePath?: string | null) {
+    if (!storagePath) return '';
+    const { data } = supabase.storage.from('mensagens-audio').getPublicUrl(storagePath);
+    return data.publicUrl;
   }
 
   async function marcarAtendido(m: Message) {
@@ -103,13 +103,15 @@ export default function MensagensPage() {
             </div>
 
             {m.kind === 'audio' ? (
-              <audio
-                controls
-                onPlay={() => obterUrlAudio(m)}
-                src={urlsAudio[m.id]}
-                onCanPlay={() => !urlsAudio[m.id] && obterUrlAudio(m)}
-                className="mt-1 h-8 w-full"
-              />
+              <div className="mt-1 flex flex-col gap-1 rounded-2xl bg-[#f7f1e6] p-2.5">
+                <span className="text-[11px] font-semibold text-[#7a6a52]">🎙️ Áudio do ouvinte:</span>
+                <audio
+                  controls
+                  preload="metadata"
+                  src={getAudioUrl(m.audio_storage_path)}
+                  className="h-9 w-full"
+                />
+              </div>
             ) : (
               <p className="text-xs leading-relaxed text-[#2b2118]">{m.content}</p>
             )}
