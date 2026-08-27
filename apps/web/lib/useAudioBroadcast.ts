@@ -3,12 +3,8 @@
 // Hook compartilhado entre a tela do pastor (/locucao) e a do convidado
 // (/convidado/[token]) pra transmitir o microfone do celular ao vivo.
 //
-// Pega o áudio com getUserMedia, grava em pedaços de 250ms com
-// MediaRecorder (Opus/WebM — o próprio navegador faz a codificação, sem
-// nenhuma lib extra) e manda cada pedaço por WebSocket pro audio-bridge
-// (ver apps/audio-bridge/server.mjs), que junta tudo com FFmpeg e envia pro
-// Icecast. Essa mesma combinação foi testada de ponta a ponta com
-// navegador headless antes de virar este hook.
+// Usa Web Audio API para mixar o microfone + música de fundo (se houver) em tempo real,
+// grava em pedaços de 250ms com MediaRecorder (Opus/WebM) e manda pro audio-bridge.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type BroadcastStatus = 'parado' | 'pedindo_microfone' | 'conectando' | 'ao_vivo' | 'erro';
@@ -18,10 +14,18 @@ const BRIDGE_WS_URL = process.env.NEXT_PUBLIC_AUDIO_BRIDGE_WS_URL || 'ws://local
 export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const [status, setStatus] = useState<BroadcastStatus>('parado');
   const [erro, setErro] = useState<string | null>(null);
+  const [volumeMic, setVolumeMic] = useState<number>(1);
+  const [volumeMusica, setVolumeMusica] = useState<number>(0.8);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const destNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const micGainNodeRef = useRef<GainNode | null>(null);
+  const musicGainNodeRef = useRef<GainNode | null>(null);
+  const musicSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   const parar = useCallback(() => {
     recorderRef.current?.stop();
@@ -30,6 +34,16 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     wsRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      audioCtxRef.current.close().catch(() => {});
+    }
+    audioCtxRef.current = null;
+    destNodeRef.current = null;
+    micGainNodeRef.current = null;
+    musicGainNodeRef.current = null;
+    musicSourceNodeRef.current = null;
+
     setStatus('parado');
   }, []);
 
@@ -44,20 +58,103 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     recorderRef.current = recorder;
   }
 
+  const conectarElementoAudio = useCallback((audioEl: HTMLAudioElement) => {
+    if (!audioCtxRef.current || !destNodeRef.current) return;
+    try {
+      if (musicSourceNodeRef.current) {
+        try { musicSourceNodeRef.current.disconnect(); } catch {}
+      }
+      const audioCtx = audioCtxRef.current;
+      const source = audioCtx.createMediaElementSource(audioEl);
+      const musicGain = ctxCreateGain(audioCtx, volumeMusica);
+
+      source.connect(musicGain);
+      musicGain.connect(destNodeRef.current);
+      source.connect(audioCtx.destination);
+
+      musicGainNodeRef.current = musicGain;
+      musicSourceNodeRef.current = source;
+    } catch {}
+  }, [volumeMusica]);
+
+  function ctxCreateGain(ctx: AudioContext, val: number) {
+    const g = ctx.createGain();
+    g.gain.value = val;
+    return g;
+  }
+
+  const alterarVolumeMic = useCallback((novoVolume: number) => {
+    setVolumeMic(novoVolume);
+    if (micGainNodeRef.current) {
+      micGainNodeRef.current.gain.value = novoVolume;
+    }
+  }, []);
+
+  const alterarVolumeMusica = useCallback((novoVolume: number) => {
+    setVolumeMusica(novoVolume);
+    if (musicGainNodeRef.current) {
+      musicGainNodeRef.current.gain.value = novoVolume;
+    }
+  }, []);
+
   const iniciar = useCallback(
-    async (token: string) => {
+    async (token: string, audioMusicaEl?: HTMLAudioElement | null) => {
       setErro(null);
       setStatus('pedindo_microfone');
 
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
       } catch {
         setErro('Não consegui acessar o microfone. Verifique a permissão nas configurações do navegador.');
         setStatus('erro');
         return;
       }
       streamRef.current = stream;
+
+      let outputStream = stream;
+      try {
+        const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (AudioCtxClass) {
+          const ctx = new AudioCtxClass();
+          if (ctx.state === 'suspended') {
+            await ctx.resume();
+          }
+          audioCtxRef.current = ctx;
+
+          const micSource = ctx.createMediaStreamSource(stream);
+          const micGain = ctx.createGain();
+          micGain.gain.value = volumeMic;
+          micGainNodeRef.current = micGain;
+
+          const dest = ctx.createMediaStreamDestination();
+          destNodeRef.current = dest;
+
+          micSource.connect(micGain);
+          micGain.connect(dest);
+
+          if (audioMusicaEl) {
+            try {
+              const musicSource = ctx.createMediaElementSource(audioMusicaEl);
+              const musicGain = ctx.createGain();
+              musicGain.gain.value = volumeMusica;
+              musicSource.connect(musicGain);
+              musicGain.connect(dest);
+              musicSource.connect(ctx.destination);
+              musicGainNodeRef.current = musicGain;
+              musicSourceNodeRef.current = musicSource;
+            } catch {}
+          }
+
+          outputStream = dest.stream;
+        }
+      } catch {}
 
       setStatus('conectando');
       const ws = new WebSocket(BRIDGE_WS_URL);
@@ -72,16 +169,14 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
         try {
           const msg = JSON.parse(event.data as string);
           if (msg.type === 'ready') {
-            iniciarGravacao(stream, ws);
+            iniciarGravacao(outputStream, ws);
             setStatus('ao_vivo');
           } else if (msg.type === 'error') {
             setErro(msg.message || 'A transmissão recusou a conexão.');
             setStatus('erro');
             parar();
           }
-        } catch {
-          // mensagens não-JSON no canal de controle são ignoradas
-        }
+        } catch {}
       };
 
       ws.onerror = () => {
@@ -90,19 +185,27 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
       };
 
       ws.onclose = (event) => {
-        // 1000 = fechamento normal (o próprio usuário apertou "encerrar")
         if (event.code !== 1000) {
           setErro((atual) => atual ?? 'A transmissão caiu. Tente ir ao ar de novo.');
           setStatus((atual) => (atual === 'ao_vivo' ? 'erro' : atual));
         }
       };
     },
-    [role, parar]
+    [role, parar, volumeMic, volumeMusica]
   );
 
-  // se o componente sumir da tela (o pastor trocou de aba, por exemplo) sem
-  // ter apertado "encerrar", ainda assim libera o microfone e a conexão.
   useEffect(() => () => parar(), [parar]);
 
-  return { status, erro, iniciar, parar };
+  return {
+    status,
+    erro,
+    iniciar,
+    parar,
+    volumeMic,
+    volumeMusica,
+    alterarVolumeMic,
+    alterarVolumeMusica,
+    conectarElementoAudio,
+  };
 }
+
