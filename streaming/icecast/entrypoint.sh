@@ -1,25 +1,25 @@
 #!/bin/sh
-# Substitui as senhas placeholder do icecast.xml pelas variáveis de ambiente
-# reais no momento em que o container sobe — assim as senhas de verdade só
-# existem nas variáveis de ambiente do Railway, nunca no arquivo commitado
-# no repositório.
 set -e
 
 CONFIG=/etc/icecast2/icecast.xml
 
+SOURCE_PW="${ICECAST_SOURCE_PASSWORD:-troque-esta-outra-senha}"
+ADMIN_PW="${ICECAST_ADMIN_PASSWORD:-troque-esta-tambem}"
+RELAY_PW="${ICECAST_RELAY_PASSWORD:-$(head -c16 /dev/urandom | md5sum | cut -d' ' -f1)}"
+
 sed -i \
-  -e "s|CHANGE_ME_SOURCE_PASSWORD|${ICECAST_SOURCE_PASSWORD:?defina ICECAST_SOURCE_PASSWORD}|g" \
-  -e "s|CHANGE_ME_RELAY_PASSWORD|${ICECAST_RELAY_PASSWORD:-$(head -c16 /dev/urandom | md5sum | cut -d' ' -f1)}|g" \
-  -e "s|CHANGE_ME_ADMIN_PASSWORD|${ICECAST_ADMIN_PASSWORD:?defina ICECAST_ADMIN_PASSWORD}|g" \
+  -e "s|CHANGE_ME_SOURCE_PASSWORD|${SOURCE_PW}|g" \
+  -e "s|CHANGE_ME_RELAY_PASSWORD|${RELAY_PW}|g" \
+  -e "s|CHANGE_ME_ADMIN_PASSWORD|${ADMIN_PW}|g" \
   "$CONFIG"
 
 if [ -n "$RAILWAY_PUBLIC_DOMAIN" ]; then
   sed -i "s|<hostname>localhost</hostname>|<hostname>${RAILWAY_PUBLIC_DOMAIN}</hostname>|" "$CONFIG"
 fi
 
-# Railway atribui uma porta dinâmica via $PORT — o Icecast precisa escutar nela.
-if [ -n "$PORT" ]; then
-  sed -i "s|<port>8000</port>|<port>${PORT}</port>|" "$CONFIG"
-fi
+# Manter porta 8000 padrão configurada no Railway
+sed -i "s|<port>.*</port>|<port>8000</port>|" "$CONFIG"
 
+echo "Iniciando Icecast na porta 8000..."
 exec icecast2 -c "$CONFIG"
+
