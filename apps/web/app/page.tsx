@@ -27,6 +27,8 @@ export default function ListenerPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [name, setName] = useState('Ouvinte');
+  const [sponsorsList, setSponsorsList] = useState<Sponsor[]>([]);
+  const [currentSponsorIndex, setCurrentSponsorIndex] = useState(0);
   const [sponsor, setSponsor] = useState<Sponsor | null>(null);
   const [gravando, setGravando] = useState(false);
   const [tempoGravacao, setTempoGravacao] = useState(0);
@@ -46,6 +48,14 @@ export default function ListenerPage() {
     const savedName = localStorage.getItem('graca_paz_user_name');
     if (savedName) setName(savedName);
 
+    async function carregarSponsors() {
+      const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
+      if (sponsors && sponsors.length > 0) {
+        setSponsorsList(sponsors);
+        sponsorsRef.current = sponsors;
+      }
+    }
+
     (async () => {
       const { data: bs } = await supabase.from('broadcast_state').select('*').eq('id', 1).single();
       if (bs) setBroadcast(bs);
@@ -58,9 +68,18 @@ export default function ListenerPage() {
         setMessages(msgs);
         setTimeout(scrollChatToEnd, 100);
       }
-      const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
-      if (sponsors) sponsorsRef.current = sponsors;
+      await carregarSponsors();
     })();
+
+    // Rotacionar patrocinadores a cada 10 segundos
+    const sponsorInterval = setInterval(() => {
+      setSponsorsList((list) => {
+        if (list.length > 1) {
+          setCurrentSponsorIndex((idx) => (idx + 1) % list.length);
+        }
+        return list;
+      });
+    }, 10000);
 
     const channel = supabase
       .channel('publico')
@@ -95,10 +114,16 @@ export default function ListenerPage() {
           setTimeout(scrollChatToEnd, 100);
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'sponsors' },
+        () => carregarSponsors()
+      )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      clearInterval(sponsorInterval);
       if (timerGravacaoRef.current) clearInterval(timerGravacaoRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,6 +334,14 @@ export default function ListenerPage() {
     setTempoGravacao(0);
   }
 
+  function getSponsorLogoUrl(storagePath?: string | null) {
+    if (!storagePath) return '';
+    const { data } = supabase.storage.from('patrocinadores').getPublicUrl(storagePath);
+    return data.publicUrl;
+  }
+
+  const currentSponsor = sponsorsList[currentSponsorIndex] || sponsorsList[0];
+
   return (
     <div className="flex min-h-screen flex-col bg-[#f7f1e6] text-[#2b2118]">
       <audio
@@ -322,15 +355,28 @@ export default function ListenerPage() {
         preload="none"
       />
 
-      {/* Pop-up do Patrocinador */}
+      {/* Pop-up do Patrocinador (Momento Especial) */}
       {sponsor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm animate-in fade-in zoom-in-95 rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-sm rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl border border-[#d9c9a8]">
+            <button
+              onClick={() => setSponsor(null)}
+              className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+            >
+              ✕
+            </button>
             <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#8a6d3b]">
-              Momento Patrocinado
+              ⭐ Momento Patrocinado
             </p>
-            <h2 className="mb-1 text-2xl font-bold text-[#2b2118]">{sponsor.name}</h2>
-            {sponsor.tagline && <p className="text-sm text-[#5c4a35]">{sponsor.tagline}</p>}
+            {sponsor.logo_storage_path && (
+              <img
+                src={getSponsorLogoUrl(sponsor.logo_storage_path)}
+                alt={sponsor.name}
+                className="mx-auto mb-3 max-h-20 max-w-[180px] rounded-xl object-contain"
+              />
+            )}
+            <h2 className="mb-1 text-xl font-extrabold text-[#2b2118]">{sponsor.name}</h2>
+            {sponsor.tagline && <p className="text-xs font-medium text-[#5c4a35]">{sponsor.tagline}</p>}
           </div>
         </div>
       )}
@@ -420,6 +466,41 @@ export default function ListenerPage() {
             )}
           </button>
         </section>
+
+        {/* Card Fixo de Apoio Cultural / Patrocinadores */}
+        {currentSponsor && (
+          <section className="relative overflow-hidden rounded-2xl border border-[#d9c9a8] bg-gradient-to-r from-[#f0e6d2] via-[#f7f1e6] to-[#f0e6d2] p-3.5 shadow-xs transition duration-500">
+            <div className="flex items-center gap-3">
+              {currentSponsor.logo_storage_path ? (
+                <img
+                  src={getSponsorLogoUrl(currentSponsor.logo_storage_path)}
+                  alt={currentSponsor.name}
+                  className="h-10 w-10 shrink-0 rounded-xl object-contain bg-white/80 p-1 border border-[#d9c9a8]"
+                />
+              ) : (
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-xs">
+                  ⭐
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#8a6d3b]">
+                    Apoio Cultural
+                  </span>
+                  {sponsorsList.length > 1 && (
+                    <span className="text-[9px] text-[#a0937a]">
+                      ({currentSponsorIndex + 1}/{sponsorsList.length})
+                    </span>
+                  )}
+                </div>
+                <h3 className="truncate text-xs font-bold text-[#2b2118]">{currentSponsor.name}</h3>
+                {currentSponsor.tagline && (
+                  <p className="truncate text-[11px] text-[#5c4a35]">{currentSponsor.tagline}</p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Bate-papo dos Ouvintes */}
         <section className="flex flex-1 flex-col rounded-3xl border border-[#d9c9a8] bg-white p-4 shadow-sm">
