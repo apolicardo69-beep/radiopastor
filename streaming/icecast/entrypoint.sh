@@ -17,4 +17,9 @@ if [ -n "$RAILWAY_PUBLIC_DOMAIN" ]; then
   sed -i "s|<hostname>localhost</hostname>|<hostname>${RAILWAY_PUBLIC_DOMAIN}</hostname>|" "$CONFIG"
 fi
 
+# Railway atribui uma porta dinâmica via $PORT — o Icecast precisa escutar nela.
+if [ -n "$PORT" ]; then
+  sed -i "s|<port>8000</port>|<port>${PORT}</port>|" "$CONFIG"
+fi
+
 exec icecast2 -c "$CONFIG"
