@@ -507,6 +507,35 @@ export default function ListenerPage() {
 
       {/* Conteúdo Principal */}
       <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 p-4">
+        {/* Card de Instalação Rápida do App */}
+        {!jaInstalado && (
+          <section className="flex items-center justify-between gap-3 rounded-3xl bg-[#2b2118] p-4 text-white shadow-md border border-[#d9c9a8]/30 animate-in fade-in">
+            <div className="flex items-center gap-3 min-w-0">
+              <img
+                src="/icons/icon-192x192.png"
+                alt="App Icon"
+                className="h-12 w-12 shrink-0 rounded-2xl border border-white/20 shadow-xs object-cover"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-black text-[#f7f1e6]">
+                  Baixe o App da Rádio
+                </p>
+                <p className="text-[11px] text-[#d9c9a8] leading-tight mt-0.5">
+                  Ouça em 2º plano com a tela do celular apagada
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleInstalarApp}
+              className="shrink-0 rounded-2xl bg-[#2f6b4f] px-3.5 py-2.5 text-xs font-extrabold text-white shadow-md hover:bg-[#255740] transition active:scale-95 flex items-center gap-1.5 animate-pulse"
+            >
+              <span>📲</span>
+              <span>Instalar</span>
+            </button>
+          </section>
+        )}
+
         {/* Card do Player Principal */}
         <section className="relative overflow-hidden rounded-3xl bg-gradient-to-b from-[#2b2118] to-[#1a140e] p-6 text-white shadow-lg">
           <div className="flex items-center justify-between">
