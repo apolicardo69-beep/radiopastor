@@ -13,8 +13,12 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      liquidsoap nodejs npm ca-certificates && \
+      liquidsoap ca-certificates curl gnupg && \
+    # Instalar Node.js 22 (Supabase JS exige Node 22+ para WebSocket nativo)
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
+
 
 WORKDIR /app
 COPY streaming/liquidsoap/radio.liq /app/radio.liq
