@@ -24,35 +24,57 @@ export default function LocucaoNav({ nome }: { nome: string }) {
   const [bannerFechado, setBannerFechado] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
-      if (isStandalone) {
-        setJaInstalado(true);
-      }
+    if (typeof window === 'undefined') return;
 
-      const handleBeforeInstallPrompt = (e: Event) => {
-        e.preventDefault();
-        setPromptInstalacao(e);
-      };
-      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-      return () => {
-        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      };
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    if (isStandalone) {
+      setJaInstalado(true);
+      return;
     }
+
+    // Ler prompt já capturado globalmente pelo layout.tsx (pode ter disparado antes do React montar)
+    if ((window as any).__pwaInstallPrompt) {
+      setPromptInstalacao((window as any).__pwaInstallPrompt);
+    }
+
+    // Escutar evento customizado caso o prompt chegue depois
+    const handlePwaReady = () => {
+      if ((window as any).__pwaInstallPrompt) {
+        setPromptInstalacao((window as any).__pwaInstallPrompt);
+      }
+    };
+    window.addEventListener('pwa-install-ready', handlePwaReady);
+
+    // Escutar o evento nativo diretamente também
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setPromptInstalacao(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('pwa-install-ready', handlePwaReady);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
   }, []);
 
   async function handleInstalarApp() {
-    if (promptInstalacao) {
-      promptInstalacao.prompt();
+    // Tentar o prompt local ou o global
+    const prompt = promptInstalacao || (typeof window !== 'undefined' && (window as any).__pwaInstallPrompt);
+    if (prompt) {
       try {
-        const { outcome } = await promptInstalacao.userChoice;
+        prompt.prompt();
+        const { outcome } = await prompt.userChoice;
         if (outcome === 'accepted') {
           setJaInstalado(true);
         }
       } catch {}
       setPromptInstalacao(null);
+      if (typeof window !== 'undefined') {
+        (window as any).__pwaInstallPrompt = null;
+      }
     } else {
+      // Fallback: mostrar instruções manuais (iOS Safari ou navegadores sem suporte)
       setMostrarDicaIos(true);
     }
   }

@@ -61,7 +61,20 @@ export default function ListenerPage() {
         setJaInstalado(true);
       }
 
-      // Capturar evento de instalação do Chrome / Android
+      // Ler prompt já capturado globalmente pelo layout.tsx
+      if ((window as any).__pwaInstallPrompt) {
+        setPromptInstalacao((window as any).__pwaInstallPrompt);
+      }
+
+      // Escutar evento customizado caso o prompt chegue depois
+      const handlePwaReady = () => {
+        if ((window as any).__pwaInstallPrompt) {
+          setPromptInstalacao((window as any).__pwaInstallPrompt);
+        }
+      };
+      window.addEventListener('pwa-install-ready', handlePwaReady);
+
+      // Escutar o evento nativo diretamente também
       const handleBeforeInstallPrompt = (e: Event) => {
         e.preventDefault();
         setPromptInstalacao(e);
