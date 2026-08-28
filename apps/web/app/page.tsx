@@ -519,10 +519,14 @@ export default function ListenerPage() {
   }
 
   async function handleInstalarApp() {
-    if (promptInstalacao) {
+    const prompt =
+      promptInstalacao ||
+      (typeof window !== 'undefined' ? (window as any).__pwaInstallPrompt : null);
+
+    if (prompt) {
       try {
-        await promptInstalacao.prompt();
-        const { outcome } = await promptInstalacao.userChoice;
+        await prompt.prompt();
+        const { outcome } = await prompt.userChoice;
         if (outcome === 'accepted') {
           setJaInstalado(true);
         }
@@ -530,6 +534,7 @@ export default function ListenerPage() {
         setModalAjudaInstalacao(true);
       }
       setPromptInstalacao(null);
+      if (typeof window !== 'undefined') (window as any).__pwaInstallPrompt = null;
     } else {
       setModalAjudaInstalacao(true);
     }

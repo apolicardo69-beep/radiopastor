@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -9,16 +9,20 @@ interface BeforeInstallPromptEvent extends Event {
 
 export default function PwaInstallLocucao() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const promptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const [jaInstalado, setJaInstalado] = useState(false);
   const [fechado, setFechado] = useState(false);
   const [modalAjuda, setModalAjuda] = useState(false);
   const [tipoDispositivo, setTipoDispositivo] = useState<'ios' | 'android' | 'desktop'>('desktop');
 
   useEffect(() => {
-    // 1. Detectar se já está rodando como PWA (App instalado)
+    // 1. Detectar se já está rodando em modo standalone (PWA instalado)
+    if (typeof window === 'undefined') return;
+
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true ||
+      document.referrer.includes('android-app://');
 
     if (isStandalone) {
       setJaInstalado(true);
@@ -27,43 +31,76 @@ export default function PwaInstallLocucao() {
 
     // 2. Detectar tipo de dispositivo
     const ua = window.navigator.userAgent.toLowerCase();
-    if (/iphone|ipad|ipod/.test(ua) && !(window as unknown as { MSStream?: unknown }).MSStream) {
+    const isIosDevice = /iphone|ipad|ipod/.test(ua) && !(window as unknown as { MSStream?: unknown }).MSStream;
+    const isAndroidDevice = /android/.test(ua);
+
+    if (isIosDevice) {
       setTipoDispositivo('ios');
-    } else if (/android/.test(ua)) {
+    } else if (isAndroidDevice) {
       setTipoDispositivo('android');
     } else {
       setTipoDispositivo('desktop');
     }
 
-    // 3. Capturar o evento nativo de instalação do navegador
+    // 3. Verificar se o prompt nativo já foi capturado globalmente pelo script inline
+    const globalPrompt = (window as unknown as { __pwaInstallPrompt?: BeforeInstallPromptEvent }).__pwaInstallPrompt;
+    if (globalPrompt) {
+      setDeferredPrompt(globalPrompt);
+      promptRef.current = globalPrompt;
+    }
+
+    // 4. Ouvir evento customizado 'pwa-install-ready'
+    const handlePwaReady = () => {
+      const p = (window as unknown as { __pwaInstallPrompt?: BeforeInstallPromptEvent }).__pwaInstallPrompt;
+      if (p) {
+        setDeferredPrompt(p);
+        promptRef.current = p;
+      }
+    };
+    window.addEventListener('pwa-install-ready', handlePwaReady);
+
+    // 5. Ouvir evento nativo 'beforeinstallprompt'
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      const p = e as BeforeInstallPromptEvent;
+      (window as unknown as { __pwaInstallPrompt?: BeforeInstallPromptEvent }).__pwaInstallPrompt = p;
+      setDeferredPrompt(p);
+      promptRef.current = p;
     };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
+    // 6. Ouvir quando o app for instalado
     const handleAppInstalled = () => {
       setJaInstalado(true);
       setDeferredPrompt(null);
+      promptRef.current = null;
       setModalAjuda(false);
       try {
         localStorage.setItem('pwa_locucao_installed', 'true');
       } catch {}
     };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
 
     return () => {
+      window.removeEventListener('pwa-install-ready', handlePwaReady);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
   async function handleInstalar() {
-    if (deferredPrompt) {
+    // Obter o prompt mais atualizado disponível
+    const prompt =
+      promptRef.current ||
+      deferredPrompt ||
+      (typeof window !== 'undefined'
+        ? (window as unknown as { __pwaInstallPrompt?: BeforeInstallPromptEvent }).__pwaInstallPrompt
+        : null);
+
+    if (prompt) {
       try {
-        await deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
+        await prompt.prompt();
+        const { outcome } = await prompt.userChoice;
         if (outcome === 'accepted') {
           setJaInstalado(true);
           try {
@@ -71,17 +108,21 @@ export default function PwaInstallLocucao() {
           } catch {}
         }
       } catch (err) {
-        console.error('[PWA Locução] Erro ao disparar prompt:', err);
+        console.error('[PWA Locução] Erro ao abrir prompt nativo:', err);
         setModalAjuda(true);
       }
       setDeferredPrompt(null);
+      promptRef.current = null;
+      if (typeof window !== 'undefined') {
+        (window as unknown as { __pwaInstallPrompt?: BeforeInstallPromptEvent | null }).__pwaInstallPrompt = null;
+      }
     } else {
-      // Se o navegador ainda não disparou o prompt ou for iOS/Firefox/Desktop
+      // Se não houver prompt nativo (ex: iOS Safari ou navegador sem suporte nativo), abre o guia
       setModalAjuda(true);
     }
   }
 
-  // Não renderizar se já estiver rodando como aplicativo instalado
+  // Não renderizar se já estiver rodando como aplicativo instalado ou dispensado
   if (jaInstalado || fechado) {
     return null;
   }
@@ -129,7 +170,7 @@ export default function PwaInstallLocucao() {
         </div>
       </div>
 
-      {/* Modal Interativo de Ajuda caso o navegador não abra o pop-up nativo */}
+      {/* Modal Interativo de Ajuda caso o navegador não abra o pop-up nativo (ex: iOS Safari) */}
       {modalAjuda && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-sm rounded-3xl bg-[#1c1412] p-6 text-white shadow-2xl border border-[#d4af37]/60">
@@ -150,7 +191,7 @@ export default function PwaInstallLocucao() {
                 Instalar Console do Locutor
               </h3>
               <p className="mt-1 text-xs text-[#d9c9a8]">
-                Siga as instruções abaixo para adicionar à sua tela inicial:
+                Siga os passos abaixo para adicionar à sua tela inicial:
               </p>
             </div>
 
@@ -176,7 +217,7 @@ export default function PwaInstallLocucao() {
                 <>
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b3261e] text-[10px] font-bold text-white">1</span>
-                    <p>Toque nos <strong className="text-[#f3e5c8]">3 pontinhos (⋮)</strong> no canto superior do navegador Chrome.</p>
+                    <p>Toque nos <strong className="text-[#f3e5c8]">3 pontinhos (⋮)</strong> no canto superior do Chrome.</p>
                   </div>
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b3261e] text-[10px] font-bold text-white">2</span>
@@ -184,7 +225,7 @@ export default function PwaInstallLocucao() {
                   </div>
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b3261e] text-[10px] font-bold text-white">3</span>
-                    <p>Confirme clicando em <strong className="text-[#f3e5c8]">Instalar</strong>.</p>
+                    <p>Confirme tocando em <strong className="text-[#f3e5c8]">Instalar</strong>.</p>
                   </div>
                 </>
               )}
@@ -193,7 +234,7 @@ export default function PwaInstallLocucao() {
                 <>
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b3261e] text-[10px] font-bold text-white">1</span>
-                    <p>Na barra de endereços do navegador (ao lado da estrela de favoritos), clique no ícone de <strong className="text-[#f3e5c8]">Instalar (🖥️ ou ⊕)</strong>.</p>
+                    <p>Na barra de endereços do navegador, clique no ícone de <strong className="text-[#f3e5c8]">Instalar (🖥️ ou ⊕)</strong>.</p>
                   </div>
                   <div className="flex items-start gap-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#b3261e] text-[10px] font-bold text-white">2</span>
