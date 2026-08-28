@@ -1,11 +1,11 @@
 'use client';
 
-// Tela principal da locução: controle do Ao Vivo + Mesa de Som / Músicas e Playlists
-import { useEffect, useState } from 'react';
+// Tela principal da locução: controle do Ao Vivo + Mesa de Som / Músicas, Playlists e Cartucheira de Vinhetas
+import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAudioBroadcast } from '@/lib/useAudioBroadcast';
 import { usePlayer } from '@/lib/PlayerContext';
-import type { BroadcastState, Track, Playlist, PlaylistItem } from '@/lib/types';
+import type { BroadcastState, Track, Playlist, PlaylistItem, JingleSlot } from '@/lib/types';
 
 const TEXTO_STATUS: Record<string, string> = {
   parado: 'Fora do ar · Toca playlist 24h',
@@ -26,6 +26,24 @@ interface OuvinteOnline {
   online_at?: string;
 }
 
+const INITIAL_SLOTS: JingleSlot[] = [
+  { id: 1, name: 'Vinheta Principal', audio_url: null, storage_path: null },
+  { id: 2, name: 'Abertura / Chamada', audio_url: null, storage_path: null },
+  { id: 3, name: 'Passagem de Bloco', audio_url: null, storage_path: null },
+  { id: 4, name: 'Fundo de Oração', audio_url: null, storage_path: null },
+  { id: 5, name: 'Hora Certa / Ao Vivo', audio_url: null, storage_path: null },
+  { id: 6, name: 'Efeito / Aplausos', audio_url: null, storage_path: null },
+];
+
+const CORES_SLOTS = [
+  { bg: 'from-amber-600 to-amber-700 border-amber-500', glow: 'shadow-amber-500/40', icone: '🔔' },
+  { bg: 'from-emerald-600 to-emerald-700 border-emerald-500', glow: 'shadow-emerald-500/40', icone: '🟢' },
+  { bg: 'from-blue-600 to-blue-700 border-blue-500', glow: 'shadow-blue-500/40', icone: '🔵' },
+  { bg: 'from-purple-600 to-purple-700 border-purple-500', glow: 'shadow-purple-500/40', icone: '🟣' },
+  { bg: 'from-rose-600 to-rose-700 border-rose-500', glow: 'shadow-rose-500/40', icone: '🔴' },
+  { bg: 'from-cyan-600 to-cyan-700 border-cyan-500', glow: 'shadow-cyan-500/40', icone: '🌊' },
+];
+
 export default function LocucaoHome() {
   const supabase = createClient();
   const {
@@ -37,6 +55,7 @@ export default function LocucaoHome() {
     alterarVolumeMic,
     alterarVolumeMusica,
     conectarElementoAudio,
+    conectarElementoVinheta,
   } = useAudioBroadcast('pastor');
 
   const {
@@ -66,6 +85,15 @@ export default function LocucaoHome() {
   const [ouvintesOnline, setOuvintesOnline] = useState<OuvinteOnline[]>([]);
   const [modalOuvintesAberto, setModalOuvintesAberto] = useState(false);
 
+  // Cartucheira de Vinhetas (6 Botões de Disparo Imediato)
+  const [jingleSlots, setJingleSlots] = useState<JingleSlot[]>(INITIAL_SLOTS);
+  const [slotTocando, setSlotTocando] = useState<number | null>(null);
+  const [slotEditando, setSlotEditando] = useState<JingleSlot | null>(null);
+  const [nomeEditando, setNomeEditando] = useState('');
+  const [enviandoVinheta, setEnviandoVinheta] = useState(false);
+  const audioVinhetaRef = useRef<HTMLAudioElement | null>(null);
+  const inputVinhetaFileRef = useRef<HTMLInputElement | null>(null);
+
   async function carregarDados() {
     const { data: bData } = await supabase.from('broadcast_state').select('*').eq('id', 1).single();
     if (bData) setBroadcast(bData);
@@ -90,6 +118,17 @@ export default function LocucaoHome() {
 
   useEffect(() => {
     carregarDados();
+
+    // Carregar configuração salva dos 6 slots de vinhetas
+    try {
+      const salvos = localStorage.getItem('graca_paz_cartucheira_slots');
+      if (salvos) {
+        const parsed = JSON.parse(salvos);
+        if (Array.isArray(parsed) && parsed.length === 6) {
+          setJingleSlots(parsed);
+        }
+      }
+    } catch {}
 
     // Monitorar ouvintes online em tempo real
     const presenceChannel = supabase.channel('radio-presence-ouvintes');
@@ -138,7 +177,7 @@ export default function LocucaoHome() {
       setErroMusica('Você precisa estar logado como pastor para ir ao ar.');
       return;
     }
-    iniciar(session.access_token, audioRef.current);
+    iniciar(session.access_token, audioRef.current, audioVinhetaRef.current);
   }
 
   async function dispararAudioNaTransmissao(acao: () => void) {
@@ -155,9 +194,141 @@ export default function LocucaoHome() {
         data: { session },
       } = await supabase.auth.getSession();
       if (session) {
-        iniciar(session.access_token, audioRef.current);
+        iniciar(session.access_token, audioRef.current, audioVinhetaRef.current);
       }
     }
+  }
+
+  // Disparo Imediato da Vinheta
+  async function dispararVinheta(slot: JingleSlot) {
+    if (!slot.audio_url) {
+      // Se não tiver áudio configurado, abre configuração do slot
+      setSlotEditando(slot);
+      setNomeEditando(slot.name);
+      return;
+    }
+
+    const audioEl = audioVinhetaRef.current;
+    if (!audioEl) return;
+
+    // Se já estiver tocando esta vinheta, para imediatamente
+    if (slotTocando === slot.id) {
+      audioEl.pause();
+      setSlotTocando(null);
+      return;
+    }
+
+    audioEl.src = slot.audio_url;
+    if (slot.audio_url.includes('supabase.co')) {
+      audioEl.crossOrigin = 'anonymous';
+    } else {
+      audioEl.removeAttribute('crossOrigin');
+    }
+    audioEl.volume = 1.0;
+    audioEl.load();
+
+    conectarElementoVinheta(audioEl);
+
+    // Se estiver fora do ar, mas o pastor quiser transmitir na hora:
+    if (status === 'parado') {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) {
+        iniciar(session.access_token, audioRef.current, audioEl);
+      }
+    }
+
+    audioEl
+      .play()
+      .then(() => {
+        setSlotTocando(slot.id);
+      })
+      .catch((err) => {
+        console.error('Erro ao disparar vinheta:', err);
+        setSlotTocando(null);
+      });
+  }
+
+  function pararVinhetas() {
+    if (audioVinhetaRef.current) {
+      audioVinhetaRef.current.pause();
+      setSlotTocando(null);
+    }
+  }
+
+  function salvarSlots(novosSlots: JingleSlot[]) {
+    setJingleSlots(novosSlots);
+    try {
+      localStorage.setItem('graca_paz_cartucheira_slots', JSON.stringify(novosSlots));
+    } catch {}
+  }
+
+  async function handleUploadArquivoVinheta(file: File) {
+    if (!slotEditando) return;
+    setEnviandoVinheta(true);
+    try {
+      const nomeLimpo = file.name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._-]/g, '_');
+      const caminho = `vinheta-${slotEditando.id}-${Date.now()}-${nomeLimpo}`;
+
+      const { error: erroUpload } = await supabase.storage.from('musicas').upload(caminho, file);
+      if (erroUpload) throw erroUpload;
+
+      const { data } = supabase.storage.from('musicas').getPublicUrl(caminho);
+      const url = data.publicUrl;
+
+      const novos = jingleSlots.map((s) =>
+        s.id === slotEditando.id
+          ? {
+              ...s,
+              name: nomeEditando.trim() || s.name,
+              audio_url: url,
+              storage_path: caminho,
+            }
+          : s
+      );
+      salvarSlots(novos);
+      setSlotEditando(null);
+    } catch (err: any) {
+      alert(`Erro no upload da vinheta: ${err.message || 'tente novamente'}`);
+    } finally {
+      setEnviandoVinheta(false);
+    }
+  }
+
+  function selecionarTrackParaVinheta(track: Track) {
+    if (!slotEditando) return;
+    let url = track.source_url || '';
+    if (track.storage_path) {
+      const { data } = supabase.storage.from('musicas').getPublicUrl(track.storage_path);
+      url = data.publicUrl;
+    }
+    if (!url) return;
+
+    const novos = jingleSlots.map((s) =>
+      s.id === slotEditando.id
+        ? {
+            ...s,
+            name: nomeEditando.trim() || track.title,
+            audio_url: url,
+            storage_path: track.storage_path,
+          }
+        : s
+    );
+    salvarSlots(novos);
+    setSlotEditando(null);
+  }
+
+  function limparSlotVinheta(id: number) {
+    const novos = jingleSlots.map((s) =>
+      s.id === id ? { ...s, audio_url: null, storage_path: null } : s
+    );
+    salvarSlots(novos);
+    setSlotEditando(null);
+    if (slotTocando === id) pararVinhetas();
   }
 
   function handleVolumeMusica(novoVolume: number) {
@@ -182,6 +353,127 @@ export default function LocucaoHome() {
 
   return (
     <div className="flex flex-col gap-4 pb-16">
+      {/* Audio element dedicado à Cartucheira de Vinhetas */}
+      <audio
+        ref={audioVinhetaRef}
+        onEnded={() => setSlotTocando(null)}
+        onError={() => setSlotTocando(null)}
+        className="hidden"
+      />
+
+      {/* Modal de Configuração do Slot de Vinheta */}
+      {slotEditando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#f7f1e6] p-5 shadow-2xl border border-[#d9c9a8] max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[#d9c9a8] pb-3 mb-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-[#2b2118] flex items-center gap-1.5">
+                  <span>⚙️</span> Configurar Botão {slotEditando.id}
+                </h3>
+                <p className="text-[11px] text-[#7a6a52]">
+                  Defina o nome e o áudio desta vinheta para disparo imediato
+                </p>
+              </div>
+              <button
+                onClick={() => setSlotEditando(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 flex flex-col gap-4 pr-1">
+              {/* Nome do Botão */}
+              <div>
+                <label className="text-xs font-bold text-[#2b2118] block mb-1">
+                  Nome no Botão:
+                </label>
+                <input
+                  value={nomeEditando}
+                  onChange={(e) => setNomeEditando(e.target.value)}
+                  placeholder="Ex: Vinheta Principal, Abertura, etc."
+                  className="w-full rounded-xl border border-[#d9c9a8] bg-white px-3 py-2 text-xs font-semibold focus:outline-none focus:border-[#2b2118]"
+                />
+              </div>
+
+              {/* Opção 1: Upload de Arquivo */}
+              <div className="rounded-2xl bg-white p-3.5 border border-[#d9c9a8]/50 shadow-xs">
+                <p className="text-xs font-bold text-[#2b2118] mb-1">
+                  📁 Enviar Áudio do Celular / Computador:
+                </p>
+                <p className="text-[11px] text-[#7a6a52] mb-2.5">
+                  Envie vinhetas curtas (.mp3, .wav, .m4a)
+                </p>
+                <button
+                  type="button"
+                  disabled={enviandoVinheta}
+                  onClick={() => inputVinhetaFileRef.current?.click()}
+                  className="w-full rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-xs hover:bg-[#1a140e] transition active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <span>{enviandoVinheta ? '⏳' : '📤'}</span>
+                  <span>{enviandoVinheta ? 'Enviando vinheta...' : 'Escolher Arquivo no Celular'}</span>
+                </button>
+                <input
+                  ref={inputVinhetaFileRef}
+                  type="file"
+                  accept="audio/*"
+                  onChange={(e) => e.target.files?.[0] && handleUploadArquivoVinheta(e.target.files[0])}
+                  className="hidden"
+                />
+              </div>
+
+              {/* Opção 2: Escolher da biblioteca existente */}
+              {tracks.length > 0 && (
+                <div className="rounded-2xl bg-white p-3.5 border border-[#d9c9a8]/50 shadow-xs">
+                  <p className="text-xs font-bold text-[#2b2118] mb-1">
+                    🎵 Ou escolher da biblioteca de áudios:
+                  </p>
+                  <div className="max-h-36 overflow-y-auto flex flex-col gap-1.5 mt-2 pr-1">
+                    {tracks.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => selecionarTrackParaVinheta(t)}
+                        className="flex items-center justify-between rounded-xl bg-[#f0e6d2]/50 p-2 text-left text-xs font-semibold text-[#2b2118] hover:bg-[#f0e6d2] transition active:scale-95"
+                      >
+                        <span className="truncate flex-1">{t.title}</span>
+                        <span className="text-[10px] text-[#2f6b4f] font-bold ml-2 shrink-0">
+                          Selecionar →
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Limpar Slot */}
+              {slotEditando.audio_url && (
+                <button
+                  type="button"
+                  onClick={() => limparSlotVinheta(slotEditando.id)}
+                  className="rounded-xl bg-[#b3261e]/10 py-2 text-xs font-bold text-[#b3261e] hover:bg-[#b3261e]/20 transition active:scale-95"
+                >
+                  🗑️ Remover Áudio deste Botão
+                </button>
+              )}
+            </div>
+
+            <button
+              onClick={() => {
+                const novos = jingleSlots.map((s) =>
+                  s.id === slotEditando.id ? { ...s, name: nomeEditando.trim() || s.name } : s
+                );
+                salvarSlots(novos);
+                setSlotEditando(null);
+              }}
+              className="mt-3 w-full rounded-2xl bg-[#2f6b4f] py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#255740] transition active:scale-95"
+            >
+              Salvar Alterações
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Modal Lista de Ouvintes Conectados Ao Vivo */}
       {modalOuvintesAberto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
@@ -312,6 +604,92 @@ export default function LocucaoHome() {
             🎙️ Convidado conectado ao vivo com você!
           </p>
         )}
+      </section>
+
+      {/* Cartucheira de Vinhetas (6 Botões de Disparo Imediato) */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52] flex items-center gap-1.5">
+              <span>⚡</span> Cartucheira de Vinhetas (6 Botões de Disparo)
+            </h2>
+            <p className="text-[11px] text-[#a0937a]">
+              Toque para disparar vinhetas e efeitos sonoros instantâneos no ar.
+            </p>
+          </div>
+
+          {slotTocando !== null && (
+            <button
+              onClick={pararVinhetas}
+              className="rounded-xl bg-[#b3261e] px-3 py-1 text-xs font-bold text-white shadow-xs hover:bg-[#8f1e17] transition active:scale-95 animate-pulse flex items-center gap-1"
+            >
+              <span>⏹</span>
+              <span>Parar Vinheta</span>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          {jingleSlots.map((slot, i) => {
+            const cor = CORES_SLOTS[i % CORES_SLOTS.length];
+            const estaTocandoEste = slotTocando === slot.id;
+            const temAudio = Boolean(slot.audio_url);
+
+            return (
+              <div
+                key={slot.id}
+                className={`relative rounded-2xl p-3 text-white transition overflow-hidden shadow-md flex flex-col justify-between min-h-[90px] border-2 bg-gradient-to-br ${
+                  estaTocandoEste
+                    ? 'ring-4 ring-white animate-pulse ' + cor.bg + ' ' + cor.glow
+                    : temAudio
+                    ? cor.bg
+                    : 'from-gray-700 to-gray-800 border-dashed border-gray-500'
+                }`}
+              >
+                {/* Botão de Disparo / Tocar */}
+                <button
+                  type="button"
+                  onClick={() => dispararVinheta(slot)}
+                  className="w-full flex-1 text-left flex flex-col justify-between active:scale-95 transition"
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-base">{cor.icone}</span>
+                    <span className="text-[10px] font-black uppercase tracking-wider rounded-md bg-black/30 px-1.5 py-0.5">
+                      {estaTocandoEste ? '🔊 NO AR' : `#${slot.id}`}
+                    </span>
+                  </div>
+
+                  <div className="mt-2">
+                    <p className="font-extrabold text-xs leading-tight line-clamp-2">
+                      {slot.name}
+                    </p>
+                    <p className="text-[10px] text-white/75 mt-0.5">
+                      {estaTocandoEste
+                        ? 'Tocando agora...'
+                        : temAudio
+                        ? '▶ Disparo rápido'
+                        : '+ Carregar áudio'}
+                    </p>
+                  </div>
+                </button>
+
+                {/* Botão de Configuração do Slot */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSlotEditando(slot);
+                    setNomeEditando(slot.name);
+                  }}
+                  className="absolute bottom-2 right-2 flex h-6 w-6 items-center justify-center rounded-lg bg-black/30 text-[11px] text-white hover:bg-black/50 transition active:scale-90"
+                  title="Configurar áudio / trocar nome"
+                >
+                  ⚙️
+                </button>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       {/* Mesa de Controle de Áudio (Mixer) */}

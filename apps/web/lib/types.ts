@@ -86,3 +86,12 @@ export interface PlaylistItem {
   created_at: string;
 }
 
+export interface JingleSlot {
+  id: number; // 1 a 6
+  name: string;
+  audio_url: string | null;
+  storage_path: string | null;
+  duration_seconds?: number | null;
+}
+
+

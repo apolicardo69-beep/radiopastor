@@ -28,6 +28,10 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const musicSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const connectedAudioElRef = useRef<HTMLAudioElement | null>(null);
 
+  const vinhetaGainNodeRef = useRef<GainNode | null>(null);
+  const vinhetaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const connectedVinhetaElRef = useRef<HTMLAudioElement | null>(null);
+
   const parar = useCallback(() => {
     recorderRef.current?.stop();
     recorderRef.current = null;
@@ -45,6 +49,9 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     musicGainNodeRef.current = null;
     musicSourceNodeRef.current = null;
     connectedAudioElRef.current = null;
+    vinhetaGainNodeRef.current = null;
+    vinhetaSourceNodeRef.current = null;
+    connectedVinhetaElRef.current = null;
 
     setStatus('parado');
   }, []);
@@ -94,6 +101,37 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     }
   }, [volumeMusica]);
 
+  const conectarElementoVinheta = useCallback((audioEl: HTMLAudioElement) => {
+    if (!audioCtxRef.current || !destNodeRef.current) return;
+    try {
+      const audioCtx = audioCtxRef.current;
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+
+      if (connectedVinhetaElRef.current === audioEl && vinhetaGainNodeRef.current) {
+        vinhetaGainNodeRef.current.gain.value = 1.0;
+        return;
+      }
+
+      if (!vinhetaSourceNodeRef.current) {
+        const source = audioCtx.createMediaElementSource(audioEl);
+        const vinhetaGain = audioCtx.createGain();
+        vinhetaGain.gain.value = 1.0;
+
+        source.connect(vinhetaGain);
+        vinhetaGain.connect(destNodeRef.current);
+        source.connect(audioCtx.destination);
+
+        vinhetaGainNodeRef.current = vinhetaGain;
+        vinhetaSourceNodeRef.current = source;
+        connectedVinhetaElRef.current = audioEl;
+      }
+    } catch (e) {
+      console.warn('[AUDIO BROADCAST] Aviso ao conectar vinheta ao mixer:', e);
+    }
+  }, []);
+
   const alterarVolumeMic = useCallback((novoVolume: number) => {
     setVolumeMic(novoVolume);
     if (micGainNodeRef.current && audioCtxRef.current) {
@@ -109,7 +147,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   }, []);
 
   const iniciar = useCallback(
-    async (token: string, audioMusicaEl?: HTMLAudioElement | null) => {
+    async (token: string, audioMusicaEl?: HTMLAudioElement | null, audioVinhetaEl?: HTMLAudioElement | null) => {
       setErro(null);
       setStatus('pedindo_microfone');
 
@@ -160,6 +198,21 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
               musicSource.connect(ctx.destination);
               musicGainNodeRef.current = musicGain;
               musicSourceNodeRef.current = musicSource;
+              connectedAudioElRef.current = audioMusicaEl;
+            } catch {}
+          }
+
+          if (audioVinhetaEl) {
+            try {
+              const vinhetaSource = ctx.createMediaElementSource(audioVinhetaEl);
+              const vinhetaGain = ctx.createGain();
+              vinhetaGain.gain.value = 1.0;
+              vinhetaSource.connect(vinhetaGain);
+              vinhetaGain.connect(dest);
+              vinhetaSource.connect(ctx.destination);
+              vinhetaGainNodeRef.current = vinhetaGain;
+              vinhetaSourceNodeRef.current = vinhetaSource;
+              connectedVinhetaElRef.current = audioVinhetaEl;
             } catch {}
           }
 
@@ -217,6 +270,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     alterarVolumeMic,
     alterarVolumeMusica,
     conectarElementoAudio,
+    conectarElementoVinheta,
   };
 }
 
