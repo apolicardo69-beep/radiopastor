@@ -34,17 +34,39 @@ export default function LocucaoNav({ nome }: { nome: string }) {
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
   const [jaInstalado, setJaInstalado] = useState(false);
-  const [bannerFechado, setBannerFechado] = useState(false);
+  const [bannerFechado, setBannerFechado] = useState(true); // default true until verified
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      document.referrer.includes('android-app://') ||
+      localStorage.getItem('pwa_app_installed') === 'true';
+
     if (isStandalone) {
       setJaInstalado(true);
+      setBannerFechado(true);
       return;
     }
+
+    // Se o usuário já fechou o banner antes, respeita e não fica abrindo
+    const dismissed = localStorage.getItem('pwa_banner_dismissed_locucao') === 'true';
+    if (dismissed) {
+      setBannerFechado(true);
+    } else {
+      setBannerFechado(false);
+    }
+
+    // Evento nativo disparado quando o app é instalado pelo navegador
+    const handleAppInstalled = () => {
+      localStorage.setItem('pwa_app_installed', 'true');
+      setJaInstalado(true);
+      setBannerFechado(true);
+    };
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     // Ler prompt já capturado globalmente pelo layout.tsx (pode ter disparado antes do React montar)
     if ((window as any).__pwaInstallPrompt) {
@@ -67,6 +89,7 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
     return () => {
+      window.removeEventListener('appinstalled', handleAppInstalled);
       window.removeEventListener('pwa-install-ready', handlePwaReady);
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
@@ -79,6 +102,13 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     return () => clearTimeout(timer);
   }, [toastMsg]);
 
+  function fecharBanner() {
+    setBannerFechado(true);
+    try {
+      localStorage.setItem('pwa_banner_dismissed_locucao', 'true');
+    } catch {}
+  }
+
   async function handleInstalarApp() {
     // Tentar o prompt local ou o global
     const prompt = promptInstalacao || (typeof window !== 'undefined' && (window as any).__pwaInstallPrompt);
@@ -87,6 +117,9 @@ export default function LocucaoNav({ nome }: { nome: string }) {
         prompt.prompt();
         const { outcome } = await prompt.userChoice;
         if (outcome === 'accepted') {
+          try {
+            localStorage.setItem('pwa_app_installed', 'true');
+          } catch {}
           setJaInstalado(true);
           setBannerFechado(true);
         }
@@ -278,7 +311,7 @@ export default function LocucaoNav({ nome }: { nome: string }) {
                 <span>Instalar</span>
               </button>
               <button
-                onClick={() => setBannerFechado(true)}
+                onClick={fecharBanner}
                 className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/70 hover:text-white"
                 title="Fechar aviso"
               >

@@ -40,7 +40,7 @@ export default function ListenerPage() {
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
   const [mostrarDicaIos, setMostrarDicaIos] = useState(false);
   const [jaInstalado, setJaInstalado] = useState(false);
-  const [bannerFechado, setBannerFechado] = useState(false);
+  const [bannerFechado, setBannerFechado] = useState(true); // default true until verified
 
   const sponsorsRef = useRef<Sponsor[]>([]);
   const trackCountRef = useRef(0);
@@ -56,10 +56,35 @@ export default function ListenerPage() {
 
     // Verificar se já está rodando como app instalado
     if (typeof window !== 'undefined') {
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+      const isStandalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes('android-app://') ||
+        localStorage.getItem('pwa_app_installed') === 'true';
+
       if (isStandalone) {
         setJaInstalado(true);
+        setBannerFechado(true);
+        return;
       }
+
+      // Se o ouvinte já fechou o banner antes, não fica mostrando repetidamente
+      const dismissed = localStorage.getItem('pwa_banner_dismissed_home') === 'true';
+      if (dismissed) {
+        setBannerFechado(true);
+      } else {
+        setBannerFechado(false);
+      }
+
+      // Evento nativo disparado quando o app é instalado pelo navegador
+      const handleAppInstalled = () => {
+        try {
+          localStorage.setItem('pwa_app_installed', 'true');
+        } catch {}
+        setJaInstalado(true);
+        setBannerFechado(true);
+      };
+      window.addEventListener('appinstalled', handleAppInstalled);
 
       // Ler prompt já capturado globalmente pelo layout.tsx
       if ((window as any).__pwaInstallPrompt) {
@@ -80,7 +105,14 @@ export default function ListenerPage() {
         setPromptInstalacao(e);
       };
       window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+      return () => {
+        window.removeEventListener('appinstalled', handleAppInstalled);
+        window.removeEventListener('pwa-install-ready', handlePwaReady);
+        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      };
     }
+  }, []);
 
     async function carregarSponsors() {
       const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
@@ -368,13 +400,24 @@ export default function ListenerPage() {
     setTempoGravacao(0);
   }
 
+  function fecharBannerHome() {
+    setBannerFechado(true);
+    try {
+      localStorage.setItem('pwa_banner_dismissed_home', 'true');
+    } catch {}
+  }
+
   async function handleInstalarApp() {
     if (promptInstalacao) {
       promptInstalacao.prompt();
       try {
         const { outcome } = await promptInstalacao.userChoice;
         if (outcome === 'accepted') {
+          try {
+            localStorage.setItem('pwa_app_installed', 'true');
+          } catch {}
           setJaInstalado(true);
+          setBannerFechado(true);
         }
       } catch {}
       setPromptInstalacao(null);
@@ -811,7 +854,7 @@ export default function ListenerPage() {
                 <span>Instalar</span>
               </button>
               <button
-                onClick={() => setBannerFechado(true)}
+                onClick={fecharBannerHome}
                 className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/70 hover:text-white"
                 title="Fechar aviso"
               >
