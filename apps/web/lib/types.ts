@@ -71,3 +71,18 @@ export interface Sponsor {
   created_at: string;
 }
 
+export interface Playlist {
+  id: string;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface PlaylistItem {
+  id: string;
+  playlist_id: string;
+  track_id: string;
+  position: number;
+  created_at: string;
+}
+

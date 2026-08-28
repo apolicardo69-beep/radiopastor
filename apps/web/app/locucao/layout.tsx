@@ -4,6 +4,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import LocucaoNav from './nav';
+import { PlayerProvider } from '@/lib/PlayerContext';
 
 export default async function LocucaoLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -24,9 +25,12 @@ export default async function LocucaoLayout({ children }: { children: React.Reac
   }
 
   return (
-    <div className="min-h-screen bg-[#f7f1e6] text-[#2b2118]">
-      <LocucaoNav nome={profile.display_name} />
-      <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>
-    </div>
+    <PlayerProvider>
+      <div className="min-h-screen bg-[#f7f1e6] text-[#2b2118]">
+        <LocucaoNav nome={profile.display_name} />
+        <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>
+      </div>
+    </PlayerProvider>
   );
 }
+

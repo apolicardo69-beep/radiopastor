@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Track } from '@/lib/types';
+import type { Track, Playlist, PlaylistItem } from '@/lib/types';
+import { usePlayer } from '@/lib/PlayerContext';
 
 function formatarDuracao(segundos: number | null) {
   if (!segundos) return '--:--';
@@ -11,63 +12,178 @@ function formatarDuracao(segundos: number | null) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+interface PlaylistComTracks extends Playlist {
+  itens: (PlaylistItem & { track?: Track })[];
+}
+
 export default function MusicasPage() {
   const supabase = createClient();
+  const { tocar, musicaTocando, estaTocando, tocarPlaylist, playlistAtiva } = usePlayer();
+
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [playlists, setPlaylists] = useState<PlaylistComTracks[]>([]);
   const [link, setLink] = useState('');
   const [tituloLink, setTituloLink] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [progresso, setProgresso] = useState('');
   const [erro, setErro] = useState<string | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
-  const [tocandoId, setTocandoId] = useState<string | null>(null);
-  const inputArquivoRef = useRef<HTMLInputElement>(null);
-  const audioPreviaRef = useRef<HTMLAudioElement | null>(null);
 
-  async function carregar() {
+  // Seleção de músicas para criar playlist
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [nomePlaylist, setNomePlaylist] = useState('');
+  const [salvandoPlaylist, setSalvandoPlaylist] = useState(false);
+  const [playlistAbertaId, setPlaylistAbertaId] = useState<string | null>(null);
+
+  const inputArquivoRef = useRef<HTMLInputElement>(null);
+
+  async function carregarTracks() {
     const { data } = await supabase.from('tracks').select('*').order('position', { ascending: true });
     if (data) setTracks(data);
   }
 
+  async function carregarPlaylists() {
+    const { data: playlistsData } = await supabase.from('playlists').select('*').order('created_at', { ascending: false });
+    if (!playlistsData) return;
+
+    const { data: itemsData } = await supabase.from('playlist_items').select('*').order('position', { ascending: true });
+
+    // Juntar tracks com playlist items
+    const { data: allTracks } = await supabase.from('tracks').select('*');
+    const tracksMap = new Map<string, Track>((allTracks || []).map((t) => [t.id, t]));
+
+    const formatadas: PlaylistComTracks[] = playlistsData.map((pl) => {
+      const itens = (itemsData || [])
+        .filter((it) => it.playlist_id === pl.id)
+        .map((it) => ({ ...it, track: tracksMap.get(it.track_id) }));
+      return { ...pl, itens };
+    });
+
+    setPlaylists(formatadas);
+  }
+
   useEffect(() => {
-    carregar();
+    carregarTracks();
+    carregarPlaylists();
+
     const channel = supabase
-      .channel('locucao-musicas')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracks' }, () => carregar())
+      .channel('locucao-musicas-page')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracks' }, () => {
+        carregarTracks();
+        carregarPlaylists();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'playlists' }, () => carregarPlaylists())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'playlist_items' }, () => carregarPlaylists())
       .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
-      if (audioPreviaRef.current) audioPreviaRef.current.pause();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function getTrackUrl(track: Track): string {
-    if (track.source === 'link' && track.source_url) return track.source_url;
-    if (track.storage_path) {
-      const { data } = supabase.storage.from('musicas').getPublicUrl(track.storage_path);
-      return data.publicUrl;
-    }
-    return '';
+  function toggleSelecionarTrack(id: string) {
+    setSelecionados((prev) => {
+      const novo = new Set(prev);
+      if (novo.has(id)) {
+        novo.delete(id);
+      } else {
+        novo.add(id);
+      }
+      return novo;
+    });
   }
 
-  function alternarPrevia(track: Track) {
-    const url = getTrackUrl(track);
-    if (!url) { setErro('Áudio não encontrado.'); return; }
-    if (tocandoId === track.id) {
-      audioPreviaRef.current?.pause();
-      setTocandoId(null);
+  function selecionarTodas() {
+    if (selecionados.size === tracks.length) {
+      setSelecionados(new Set());
+    } else {
+      setSelecionados(new Set(tracks.map((t) => t.id)));
+    }
+  }
+
+  async function criarPlaylist(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nomePlaylist.trim()) {
+      setErro('Digite um nome para a playlist.');
       return;
     }
-    if (!audioPreviaRef.current) {
-      audioPreviaRef.current = new Audio();
-      audioPreviaRef.current.onended = () => setTocandoId(null);
-      audioPreviaRef.current.onerror = () => { setErro('Erro ao reproduzir.'); setTocandoId(null); };
+    if (selecionados.size === 0) {
+      setErro('Selecione pelo menos uma música para a playlist.');
+      return;
     }
-    audioPreviaRef.current.src = url;
-    audioPreviaRef.current.play()
-      .then(() => { setTocandoId(track.id); setErro(null); })
-      .catch(() => { setErro('O navegador bloqueou o áudio ou o link é inacessível.'); setTocandoId(null); });
+
+    setSalvandoPlaylist(true);
+    setErro(null);
+    setSucesso(null);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      // 1. Inserir playlist
+      const { data: novaPlaylist, error: erroPl } = await supabase
+        .from('playlists')
+        .insert({
+          name: nomePlaylist.trim(),
+          created_by: user?.id || null,
+        })
+        .select()
+        .single();
+
+      if (erroPl || !novaPlaylist) {
+        throw new Error(erroPl?.message || 'Erro ao criar playlist.');
+      }
+
+      // 2. Inserir itens ordenados
+      const idsArray = Array.from(selecionados);
+      const itensParaInserir = idsArray.map((trackId, idx) => ({
+        playlist_id: novaPlaylist.id,
+        track_id: trackId,
+        position: idx + 1,
+      }));
+
+      const { error: erroItens } = await supabase.from('playlist_items').insert(itensParaInserir);
+      if (erroItens) {
+        throw new Error(erroItens.message);
+      }
+
+      setNomePlaylist('');
+      setSelecionados(new Set());
+      setSucesso(`✅ Playlist "${novaPlaylist.name}" criada com ${itensParaInserir.length} músicas! Ela já aparece no Estúdio.`);
+      await carregarPlaylists();
+    } catch (e: any) {
+      setErro(`Erro ao salvar playlist: ${e.message || 'tente novamente'}`);
+    } finally {
+      setSalvandoPlaylist(false);
+    }
+  }
+
+  async function excluirPlaylist(id: string, nome: string) {
+    if (!confirm(`Tem certeza que deseja excluir a playlist "${nome}"?`)) return;
+    try {
+      const { error } = await supabase.from('playlists').delete().eq('id', id);
+      if (error) throw error;
+      setSucesso(`Playlist "${nome}" removida.`);
+      await carregarPlaylists();
+    } catch (e: any) {
+      setErro(`Erro ao excluir: ${e.message}`);
+    }
+  }
+
+  function tocarPlaylistCompleta(pl: PlaylistComTracks) {
+    const listaTracks = pl.itens
+      .map((it) => it.track)
+      .filter((t): t is Track => t !== undefined);
+
+    if (listaTracks.length === 0) {
+      setErro('Esta playlist não possui músicas válidas.');
+      return;
+    }
+
+    tocarPlaylist(pl, listaTracks);
+    setSucesso(`▶ Tocando playlist "${pl.name}" (${listaTracks.length} músicas)`);
   }
 
   function duracaoDoArquivo(file: File): Promise<number | null> {
@@ -102,10 +218,10 @@ export default function MusicasPage() {
 
       try {
         const duracao = await duracaoDoArquivo(file);
-        // Sanitizar nome: remover acentos, espaços e caracteres especiais
         const nomeLimpo = file.name
-          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // remove acentos
-          .replace(/[^a-zA-Z0-9._-]/g, '_');                 // troca especiais por _
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-zA-Z0-9._-]/g, '_');
         const caminho = `${crypto.randomUUID()}-${nomeLimpo}`;
         const { error: erroUpload } = await supabase.storage.from('musicas').upload(caminho, file);
         if (erroUpload) {
@@ -143,7 +259,7 @@ export default function MusicasPage() {
 
     setEnviando(false);
     if (inputArquivoRef.current) inputArquivoRef.current.value = '';
-    await carregar();
+    await carregarTracks();
   }
 
   async function adicionarLink(e: React.FormEvent) {
@@ -163,7 +279,7 @@ export default function MusicasPage() {
       if (error) throw new Error(error.message);
       setLink('');
       setTituloLink('');
-      setSucesso('✅ Música adicionada à playlist!');
+      setSucesso('✅ Música adicionada com sucesso!');
     } catch (e) {
       setErro(`Não consegui adicionar: ${e instanceof Error ? e.message : 'erro desconhecido'}`);
     } finally {
@@ -172,7 +288,6 @@ export default function MusicasPage() {
   }
 
   async function remover(track: Track) {
-    if (tocandoId === track.id) { audioPreviaRef.current?.pause(); setTocandoId(null); }
     if (track.storage_path) await supabase.storage.from('musicas').remove([track.storage_path]);
     await supabase.from('tracks').delete().eq('id', track.id);
   }
@@ -189,16 +304,162 @@ export default function MusicasPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-8">
+    <div className="flex flex-col gap-5 pb-16">
+      {/* Playlists Personalizadas Cadastradas */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
+        <div className="mb-3 flex items-center justify-between border-b border-[#f0e6d2] pb-2">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+              📋 Playlists Personalizadas ({playlists.length})
+            </h2>
+            <p className="text-[11px] text-[#a0937a]">
+              Playlists criadas para tocar direto no Estúdio durante a locução.
+            </p>
+          </div>
+        </div>
+
+        {playlists.length === 0 ? (
+          <div className="rounded-2xl bg-[#f7f1e6]/60 p-4 text-center text-xs text-[#7a6a52]">
+            <span className="text-2xl block mb-1">✨</span>
+            <p className="font-bold">Nenhuma playlist criada ainda.</p>
+            <p className="text-[11px] text-[#a0937a] mt-0.5">
+              Selecione as músicas na lista abaixo com o checkbox e dê um nome para criar sua primeira playlist!
+            </p>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {playlists.map((pl) => {
+              const estaTocandoEstaPlaylist = playlistAtiva?.id === pl.id && estaTocando;
+              const isAberta = playlistAbertaId === pl.id;
+
+              return (
+                <li
+                  key={pl.id}
+                  className={`rounded-2xl border transition overflow-hidden ${
+                    estaTocandoEstaPlaylist
+                      ? 'border-[#2f6b4f] bg-[#eaf3ec]/70'
+                      : 'border-[#d9c9a8]/50 bg-[#f0e6d2]/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between p-3.5 gap-2">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <button
+                        onClick={() => tocarPlaylistCompleta(pl)}
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white shadow-sm transition active:scale-95 ${
+                          estaTocandoEstaPlaylist ? 'bg-[#b3261e]' : 'bg-[#2f6b4f]'
+                        }`}
+                        title={estaTocandoEstaPlaylist ? 'Tocando playlist' : 'Tocar esta playlist'}
+                      >
+                        {estaTocandoEstaPlaylist ? '⏸' : '▶'}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-[#2b2118] flex items-center gap-1.5">
+                          <span>{pl.name}</span>
+                          {estaTocandoEstaPlaylist && (
+                            <span className="rounded-md bg-[#2f6b4f] px-1.5 py-0.5 text-[9px] font-extrabold text-white animate-pulse">
+                              No Ar
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-[11px] text-[#7a6a52]">
+                          🎵 {pl.itens.length} {pl.itens.length === 1 ? 'música' : 'músicas'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => setPlaylistAbertaId(isAberta ? null : pl.id)}
+                        className="rounded-xl bg-white/80 px-2.5 py-1.5 text-xs font-semibold text-[#5c4a35] hover:bg-white active:scale-95 shadow-xs"
+                      >
+                        {isAberta ? 'Ocultar' : 'Ver faixas'}
+                      </button>
+                      <button
+                        onClick={() => excluirPlaylist(pl.id, pl.name)}
+                        className="flex h-8 w-8 items-center justify-center rounded-xl text-xs font-bold text-[#b3261e] hover:bg-[#b3261e]/10 active:scale-95"
+                        title="Excluir playlist"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lista de faixas da playlist expandida */}
+                  {isAberta && (
+                    <div className="border-t border-[#d9c9a8]/30 bg-white/60 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[#7a6a52] mb-2">
+                        Faixas da Playlist ({pl.itens.length}):
+                      </p>
+                      <ul className="flex flex-col gap-1.5">
+                        {pl.itens.map((it, idx) => (
+                          <li
+                            key={it.id}
+                            className="flex items-center justify-between gap-2 rounded-xl bg-white/90 px-2.5 py-1.5 text-xs"
+                          >
+                            <span className="text-[11px] font-bold text-[#7a6a52] w-5 shrink-0">
+                              {idx + 1}.
+                            </span>
+                            <span className="truncate flex-1 font-semibold text-[#2b2118]">
+                              {it.track?.title || 'Música indisponível'}
+                            </span>
+                            <span className="text-[10px] text-[#a0937a]">
+                              {formatarDuracao(it.track?.duration_seconds ?? null)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Caixa de Criação de Playlist a partir da seleção */}
+      {selecionados.size > 0 && (
+        <section className="sticky top-16 z-30 rounded-3xl bg-[#2b2118] p-4 text-white shadow-2xl border border-[#d9c9a8]/40 animate-in slide-in-from-top duration-300">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-bold text-[#f7f1e6]">
+              ✨ Criar Playlist com {selecionados.size} {selecionados.size === 1 ? 'música selecionada' : 'músicas selecionadas'}
+            </span>
+            <button
+              onClick={() => setSelecionados(new Set())}
+              className="text-[11px] text-[#d9c9a8] hover:text-white underline"
+            >
+              Desmarcar todas
+            </button>
+          </div>
+
+          <form onSubmit={criarPlaylist} className="flex gap-2">
+            <input
+              value={nomePlaylist}
+              onChange={(e) => setNomePlaylist(e.target.value)}
+              placeholder="Nome da Playlist (ex: Culto de Domingo, Manhã de Louvor)"
+              required
+              className="flex-1 rounded-xl bg-white px-3.5 py-2 text-xs font-medium text-[#2b2118] focus:outline-none focus:ring-2 focus:ring-[#d9c9a8]"
+            />
+            <button
+              type="submit"
+              disabled={salvandoPlaylist || !nomePlaylist.trim()}
+              className="rounded-xl bg-[#2f6b4f] px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-[#255740] disabled:opacity-50 transition active:scale-95 shrink-0"
+            >
+              {salvandoPlaylist ? 'Salvando...' : 'Salvar Playlist'}
+            </button>
+          </form>
+        </section>
+      )}
+
       {/* Upload de Músicas do Celular */}
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
         <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
           📁 Enviar Músicas do Celular / Computador
         </h2>
         <p className="mb-3 text-[11px] text-[#7a6a52]">
           Toque no botão abaixo e selecione <strong>uma ou várias músicas</strong> (.mp3, .wav, .m4a) de uma só vez.
         </p>
-        
+
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#d9c9a8] bg-[#f7f1e6]/50 p-5 text-center transition active:bg-[#f0e6d2] hover:bg-[#f7f1e6]">
           <span className="text-3xl">🎵</span>
           <span className="mt-2 text-xs font-bold text-[#2b2118]">
@@ -225,7 +486,7 @@ export default function MusicasPage() {
       </section>
 
       {/* Adicionar Link Web */}
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
         <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
           🔗 Adicionar por Link de Áudio
         </h2>
@@ -248,7 +509,7 @@ export default function MusicasPage() {
             disabled={enviando || !link.trim()}
             className="rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
           >
-            Adicionar à Playlist
+            Adicionar à Lista de Músicas
           </button>
         </form>
       </section>
@@ -264,27 +525,53 @@ export default function MusicasPage() {
         </p>
       )}
 
-      {/* Playlist Atual */}
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
+      {/* Lista Todas as Músicas com Checkboxes para montagem de Playlists */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
         <div className="mb-3 flex items-center justify-between border-b border-[#f0e6d2] pb-2">
           <div>
             <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
-              🎵 Playlist da Rádio ({tracks.length})
+              🎵 Todas as Músicas ({tracks.length})
             </h2>
-            <span className="text-[10px] text-[#a0937a]">Toca 24h quando não há locutor</span>
+            <span className="text-[10px] text-[#a0937a]">
+              Marque as músicas desejadas para criar uma playlist
+            </span>
           </div>
+
+          {tracks.length > 0 && (
+            <button
+              onClick={selecionarTodas}
+              className="rounded-xl bg-[#f0e6d2]/80 px-2.5 py-1 text-[11px] font-bold text-[#5c4a35] hover:bg-[#f0e6d2] transition active:scale-95"
+            >
+              {selecionados.size === tracks.length ? 'Desmarcar Todas' : 'Marcar Todas'}
+            </button>
+          )}
         </div>
 
         <ul className="flex flex-col gap-2">
           {tracks.map((track, i) => {
-            const estaTocando = tocandoId === track.id;
+            const estaTocandoEsta = musicaTocando?.id === track.id && estaTocando;
+            const isSelecionada = selecionados.has(track.id);
+
             return (
               <li
                 key={track.id}
-                className={`flex items-center gap-2 rounded-2xl p-2.5 transition ${
-                  estaTocando ? 'bg-[#e8dac0] shadow-xs' : 'bg-[#f0e6d2]/70 hover:bg-[#f0e6d2]'
+                className={`flex items-center gap-2 rounded-2xl p-2.5 transition border ${
+                  isSelecionada
+                    ? 'border-[#2b2118] bg-[#f0e6d2]'
+                    : estaTocandoEsta
+                    ? 'border-[#2f6b4f] bg-[#eaf3ec]'
+                    : 'border-transparent bg-[#f0e6d2]/60 hover:bg-[#f0e6d2]'
                 }`}
               >
+                {/* Checkbox para selecionar para Playlist */}
+                <input
+                  type="checkbox"
+                  checked={isSelecionada}
+                  onChange={() => toggleSelecionarTrack(track.id)}
+                  className="h-4 w-4 cursor-pointer accent-[#2b2118] rounded"
+                  title="Selecionar para playlist"
+                />
+
                 {/* Botões Reordenar (Touch-friendly) */}
                 <div className="flex flex-col gap-1">
                   <button
@@ -305,20 +592,23 @@ export default function MusicasPage() {
                   </button>
                 </div>
 
-                {/* Botão Play Prévia */}
+                {/* Botão Play / Tocar no Player Persistente */}
                 <button
                   type="button"
-                  onClick={() => alternarPrevia(track)}
+                  onClick={() => tocar(track)}
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-bold text-white shadow-xs transition active:scale-90 ${
-                    estaTocando ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
+                    estaTocandoEsta ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
                   }`}
-                  title={estaTocando ? 'Pausar prévia' : 'Ouvir prévia'}
+                  title={estaTocandoEsta ? 'Pausar áudio' : 'Tocar áudio'}
                 >
-                  {estaTocando ? '⏸' : '▶'}
+                  {estaTocandoEsta ? '⏸' : '▶'}
                 </button>
 
                 {/* Título e Duração */}
-                <div className="min-w-0 flex-1">
+                <div
+                  className="min-w-0 flex-1 cursor-pointer"
+                  onClick={() => toggleSelecionarTrack(track.id)}
+                >
                   <p className="truncate text-xs font-bold text-[#2b2118]">{track.title}</p>
                   <p className="text-[10px] text-[#7a6a52]">
                     {track.source === 'link' ? '🌐 Link' : '📁 Arquivo'} · {formatarDuracao(track.duration_seconds)}
@@ -329,7 +619,7 @@ export default function MusicasPage() {
                 <button
                   onClick={() => remover(track)}
                   className="rounded-xl px-2 py-1.5 text-[11px] font-bold text-[#b3261e] hover:bg-[#b3261e]/10 active:scale-90 transition"
-                  title="Remover da rádio"
+                  title="Remover música"
                 >
                   ✕
                 </button>
@@ -339,7 +629,7 @@ export default function MusicasPage() {
 
           {tracks.length === 0 && (
             <p className="py-8 text-center text-xs text-[#a0937a]">
-              Nenhuma música na playlist ainda. Adicione músicas acima!
+              Nenhuma música na biblioteca ainda. Adicione músicas acima!
             </p>
           )}
         </ul>

@@ -1,10 +1,11 @@
 'use client';
 
-// Tela principal da locução: controle do Ao Vivo + Mesa de Som / Músicas
-import { useEffect, useRef, useState } from 'react';
+// Tela principal da locução: controle do Ao Vivo + Mesa de Som / Músicas e Playlists
+import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAudioBroadcast } from '@/lib/useAudioBroadcast';
-import type { BroadcastState, Track } from '@/lib/types';
+import { usePlayer } from '@/lib/PlayerContext';
+import type { BroadcastState, Track, Playlist, PlaylistItem } from '@/lib/types';
 
 const TEXTO_STATUS: Record<string, string> = {
   parado: 'Fora do ar · Toca playlist 24h',
@@ -14,41 +15,70 @@ const TEXTO_STATUS: Record<string, string> = {
   erro: 'Não foi possível ir ao ar',
 };
 
+interface PlaylistComTracks extends Playlist {
+  itens: (PlaylistItem & { track?: Track })[];
+}
+
 export default function LocucaoHome() {
   const supabase = createClient();
   const {
     status,
-    erro,
+    erro: erroBroadcast,
     iniciar,
     parar,
     volumeMic,
-    volumeMusica,
     alterarVolumeMic,
     alterarVolumeMusica,
     conectarElementoAudio,
   } = useAudioBroadcast('pastor');
 
+  const {
+    musicaTocando,
+    estaTocando,
+    playlistAtiva,
+    filaPlaylist,
+    indiceFila,
+    tocar,
+    pausar,
+    retomar,
+    tocarPlaylist,
+    pararPlaylist,
+    proxima,
+    anterior,
+    audioRef,
+    volumeMusica,
+    setVolumeMusica,
+  } = usePlayer();
+
   const [broadcast, setBroadcast] = useState<BroadcastState | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
-  const [musicaTocando, setMusicaTocando] = useState<Track | null>(null);
-  const [estaTocandoMusica, setEstaTocandoMusica] = useState(false);
+  const [playlists, setPlaylists] = useState<PlaylistComTracks[]>([]);
   const [erroMusica, setErroMusica] = useState<string | null>(null);
 
-  const audioMusicaRef = useRef<HTMLAudioElement>(null);
+  async function carregarDados() {
+    const { data: bData } = await supabase.from('broadcast_state').select('*').eq('id', 1).single();
+    if (bData) setBroadcast(bData);
+
+    const { data: tData } = await supabase.from('tracks').select('*').order('position', { ascending: true });
+    if (tData) setTracks(tData);
+
+    const { data: pData } = await supabase.from('playlists').select('*').order('created_at', { ascending: false });
+    if (pData) {
+      const { data: piData } = await supabase.from('playlist_items').select('*').order('position', { ascending: true });
+      const tracksMap = new Map<string, Track>((tData || []).map((t) => [t.id, t]));
+
+      const formatadas: PlaylistComTracks[] = pData.map((pl) => {
+        const itens = (piData || [])
+          .filter((it) => it.playlist_id === pl.id)
+          .map((it) => ({ ...it, track: tracksMap.get(it.track_id) }));
+        return { ...pl, itens };
+      });
+      setPlaylists(formatadas);
+    }
+  }
 
   useEffect(() => {
-    supabase
-      .from('broadcast_state')
-      .select('*')
-      .eq('id', 1)
-      .single()
-      .then(({ data }) => data && setBroadcast(data));
-
-    supabase
-      .from('tracks')
-      .select('*')
-      .order('position', { ascending: true })
-      .then(({ data }) => data && setTracks(data));
+    carregarDados();
 
     const channel = supabase
       .channel('locucao-home')
@@ -57,17 +87,9 @@ export default function LocucaoHome() {
         { event: '*', schema: 'public', table: 'broadcast_state' },
         (payload) => setBroadcast(payload.new as BroadcastState)
       )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tracks' },
-        () => {
-          supabase
-            .from('tracks')
-            .select('*')
-            .order('position', { ascending: true })
-            .then(({ data }) => data && setTracks(data));
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tracks' }, () => carregarDados())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'playlists' }, () => carregarDados())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'playlist_items' }, () => carregarDados())
       .subscribe();
 
     return () => {
@@ -76,24 +98,9 @@ export default function LocucaoHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function getTrackUrl(track: Track): string {
-    if (track.source === 'link' && track.source_url) {
-      return track.source_url;
-    }
-    if (track.storage_path) {
-      const { data } = supabase.storage.from('musicas').getPublicUrl(track.storage_path);
-      return data.publicUrl;
-    }
-    return '';
-  }
-
   async function alternarAoVivo() {
     if (status === 'ao_vivo') {
       parar();
-      if (audioMusicaRef.current) {
-        audioMusicaRef.current.pause();
-        setEstaTocandoMusica(false);
-      }
       return;
     }
     const {
@@ -103,69 +110,31 @@ export default function LocucaoHome() {
       setErroMusica('Você precisa estar logado como pastor para ir ao ar.');
       return;
     }
-    iniciar(session.access_token, audioMusicaRef.current);
+    iniciar(session.access_token, audioRef.current);
   }
 
-  async function tocarMusicaNaTransmissao(track: Track) {
-    const url = getTrackUrl(track);
-    if (!url || !audioMusicaRef.current) {
-      setErroMusica('Link ou arquivo de áudio não encontrado para esta música.');
-      return;
-    }
-
-    if (musicaTocando?.id === track.id && estaTocandoMusica) {
-      audioMusicaRef.current.pause();
-      setEstaTocandoMusica(false);
-      return;
-    }
-
+  async function dispararAudioNaTransmissao(acao: () => void) {
     setErroMusica(null);
-    const audioEl = audioMusicaRef.current;
-    if (url.includes('supabase.co')) {
-      audioEl.crossOrigin = 'anonymous';
-    } else {
-      audioEl.removeAttribute('crossOrigin');
+    acao();
+
+    if (audioRef.current) {
+      conectarElementoAudio(audioRef.current);
     }
-    audioEl.src = url;
-    audioEl.volume = Math.min(1, Math.max(0, volumeMusica));
-    audioEl.load();
 
-    audioEl
-      .play()
-      .then(async () => {
-        setMusicaTocando(track);
-        setEstaTocandoMusica(true);
-        conectarElementoAudio(audioEl);
-
-        // Se ainda não estiver ao vivo, conecta automaticamente à transmissão para que os ouvintes escutem esta música
-        if (status === 'parado') {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          if (session) {
-            iniciar(session.access_token, audioEl);
-          }
-        }
-      })
-      .catch((err) => {
-        console.error('Erro ao tocar áudio:', err);
-        setErroMusica('Não foi possível carregar este áudio no navegador.');
-        setEstaTocandoMusica(false);
-      });
-  }
-
-  function pausarMusica() {
-    if (audioMusicaRef.current) {
-      audioMusicaRef.current.pause();
-      setEstaTocandoMusica(false);
+    // Se ainda não estiver ao vivo, inicia a transmissão para os ouvintes escutarem
+    if (status === 'parado') {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session) {
+        iniciar(session.access_token, audioRef.current);
+      }
     }
   }
 
   function handleVolumeMusica(novoVolume: number) {
     alterarVolumeMusica(novoVolume);
-    if (audioMusicaRef.current) {
-      audioMusicaRef.current.volume = Math.min(1, Math.max(0, novoVolume));
-    }
+    setVolumeMusica(novoVolume);
   }
 
   function handleVolumeMic(novoVolume: number) {
@@ -176,17 +145,9 @@ export default function LocucaoHome() {
   const ocupado = status === 'pedindo_microfone' || status === 'conectando';
 
   return (
-    <div className="flex flex-col gap-4 pb-8">
-      {/* Audio element oculto usado para mixagem */}
-      <audio
-        ref={audioMusicaRef}
-        onEnded={() => setEstaTocandoMusica(false)}
-        onPause={() => setEstaTocandoMusica(false)}
-        onPlay={() => setEstaTocandoMusica(true)}
-      />
-
+    <div className="flex flex-col gap-4 pb-16">
       {/* Cartão Principal do Microfone / Ao Vivo */}
-      <section className="rounded-3xl bg-white p-6 text-center shadow-sm">
+      <section className="rounded-3xl bg-white p-6 text-center shadow-sm border border-[#d9c9a8]/40">
         <div className="mb-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider bg-[#f0e6d2]">
           <span
             className={`h-2.5 w-2.5 rounded-full ${
@@ -214,9 +175,9 @@ export default function LocucaoHome() {
           </button>
         </div>
 
-        {erro && (
+        {erroBroadcast && (
           <p className="mt-4 rounded-xl bg-[#fbeaea] p-3 text-xs font-semibold text-[#b3261e]">
-            {erro}
+            {erroBroadcast}
           </p>
         )}
 
@@ -228,7 +189,7 @@ export default function LocucaoHome() {
       </section>
 
       {/* Mesa de Controle de Áudio (Mixer) */}
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
         <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
           🎛️ Mesa de Som (Mixer)
         </h2>
@@ -287,7 +248,7 @@ export default function LocucaoHome() {
           <div className="rounded-2xl bg-[#f0e6d2]/70 p-3.5">
             <div className="flex items-center justify-between text-xs font-bold text-[#2b2118]">
               <span className="flex items-center gap-1.5">
-                <span>🎵</span> Louvor / Fundo
+                <span>🎵</span> Louvor / Playlist / Fundo
               </span>
               <span className="rounded-md bg-white/80 px-2 py-0.5 text-[11px]">
                 {Math.round(volumeMusica * 100)}%
@@ -334,44 +295,167 @@ export default function LocucaoHome() {
         </div>
       </section>
 
-      {/* Soundboard / Músicas ao Vivo */}
-      <section className="rounded-3xl bg-white p-5 shadow-sm">
+      {/* Cartão de Monitoramento / O que está tocando agora */}
+      {musicaTocando && (
+        <section className="rounded-3xl border border-[#2f6b4f] bg-[#eaf3ec] p-4 text-xs shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <span className={`text-2xl ${estaTocando ? 'animate-spin' : ''}`}>💿</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-[#2f6b4f]">
+                  {playlistAtiva
+                    ? `📋 Playlist "${playlistAtiva.name}" · Faixa ${indiceFila + 1} de ${filaPlaylist.length}`
+                    : '🎵 Tocando no Ar para os Ouvintes:'}
+                </p>
+                <p className="truncate text-sm font-extrabold text-[#2b2118]">{musicaTocando.title}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {playlistAtiva && filaPlaylist.length > 1 && (
+                <button
+                  onClick={anterior}
+                  disabled={indiceFila <= 0}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/80 text-xs font-bold text-[#2b2118] shadow-xs disabled:opacity-30 active:scale-95"
+                  title="Anterior"
+                >
+                  ⏮
+                </button>
+              )}
+
+              <button
+                onClick={estaTocando ? pausar : retomar}
+                className="rounded-xl bg-[#2f6b4f] px-3 py-1.5 text-xs font-bold text-white shadow-xs transition active:scale-95"
+              >
+                {estaTocando ? '⏸ Pausar' : '▶ Retomar'}
+              </button>
+
+              {playlistAtiva && filaPlaylist.length > 1 && (
+                <button
+                  onClick={proxima}
+                  disabled={indiceFila >= filaPlaylist.length - 1}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/80 text-xs font-bold text-[#2b2118] shadow-xs disabled:opacity-30 active:scale-95"
+                  title="Próxima"
+                >
+                  ⏭
+                </button>
+              )}
+
+              <button
+                onClick={pararPlaylist}
+                className="rounded-xl bg-[#b3261e]/10 px-2 py-1.5 text-xs font-bold text-[#b3261e] hover:bg-[#b3261e]/20 active:scale-95 transition"
+                title="Parar áudio"
+              >
+                ⏹ Parar
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Playlists Personalizadas Cadastradas */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
-              📻 Tocar Músicas no Ar
+              📋 Playlists da Rádio ({playlists.length})
+            </h2>
+            <p className="text-[11px] text-[#a0937a]">
+              Toque uma playlist completa em sequência durante a transmissão.
+            </p>
+          </div>
+        </div>
+
+        {playlists.length === 0 ? (
+          <p className="py-4 text-center text-xs text-[#a0937a]">
+            Nenhuma playlist criada. Vá na aba <b>Músicas</b> para montar suas playlists personalizadas!
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2.5">
+            {playlists.map((pl) => {
+              const estaTocandoEstaPlaylist = playlistAtiva?.id === pl.id && estaTocando;
+              const listaTracks = pl.itens
+                .map((it) => it.track)
+                .filter((t): t is Track => t !== undefined);
+
+              return (
+                <li
+                  key={pl.id}
+                  className={`flex items-center justify-between gap-3 rounded-2xl p-3.5 border transition ${
+                    estaTocandoEstaPlaylist
+                      ? 'border-[#2f6b4f] bg-[#eaf3ec]'
+                      : 'border-[#d9c9a8]/40 bg-[#f0e6d2]/60 hover:bg-[#f0e6d2]'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <button
+                      onClick={() =>
+                        dispararAudioNaTransmissao(() => {
+                          if (estaTocandoEstaPlaylist) {
+                            pausar();
+                          } else {
+                            tocarPlaylist(pl, listaTracks);
+                          }
+                        })
+                      }
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm transition active:scale-95 ${
+                        estaTocandoEstaPlaylist ? 'bg-[#b3261e]' : 'bg-[#2f6b4f]'
+                      }`}
+                    >
+                      {estaTocandoEstaPlaylist ? '⏸' : '▶'}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-bold text-[#2b2118] flex items-center gap-1.5">
+                        <span>{pl.name}</span>
+                        {estaTocandoEstaPlaylist && (
+                          <span className="rounded-md bg-[#2f6b4f] px-1.5 py-0.5 text-[9px] font-extrabold text-white animate-pulse">
+                            No Ar
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-[#7a6a52]">
+                        🎵 {pl.itens.length} {pl.itens.length === 1 ? 'música' : 'músicas'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() =>
+                      dispararAudioNaTransmissao(() => {
+                        if (estaTocandoEstaPlaylist) {
+                          pausar();
+                        } else {
+                          tocarPlaylist(pl, listaTracks);
+                        }
+                      })
+                    }
+                    className={`rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95 shadow-xs shrink-0 ${
+                      estaTocandoEstaPlaylist
+                        ? 'bg-[#b3261e] text-white'
+                        : 'bg-white text-[#2b2118] hover:bg-[#f7f1e6]'
+                    }`}
+                  >
+                    {estaTocandoEstaPlaylist ? 'Pausar' : '▶ Tocar Playlist'}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {/* Soundboard / Músicas Avulsas no Ar */}
+      <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#7a6a52]">
+              📻 Músicas Individuais ({tracks.length})
             </h2>
             <p className="text-[11px] text-[#a0937a]">
               Solte um louvor ou fundo de oração diretamente na transmissão.
             </p>
           </div>
-          {estaTocandoMusica && (
-            <button
-              onClick={pausarMusica}
-              className="rounded-xl bg-[#b3261e] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition active:scale-95"
-            >
-              ⏸ Pausar
-            </button>
-          )}
         </div>
-
-        {musicaTocando && estaTocandoMusica && (
-          <div className="mb-3 flex items-center justify-between rounded-2xl border border-[#2f6b4f] bg-[#eaf3ec] p-3 text-xs">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <span className="animate-spin text-lg">💿</span>
-              <div className="truncate">
-                <p className="font-bold text-[#2f6b4f]">Tocando Agora para os Ouvintes:</p>
-                <p className="truncate font-semibold text-[#2b2118]">{musicaTocando.title}</p>
-              </div>
-            </div>
-            <button
-              onClick={pausarMusica}
-              className="ml-2 shrink-0 rounded-lg bg-[#2f6b4f] px-2.5 py-1 text-xs font-bold text-white shadow-xs"
-            >
-              Pausar
-            </button>
-          </div>
-        )}
 
         {erroMusica && (
           <p className="mb-3 rounded-xl bg-[#fbeaea] p-2.5 text-center text-xs font-semibold text-[#b3261e]">
@@ -381,7 +465,7 @@ export default function LocucaoHome() {
 
         <ul className="flex flex-col gap-2">
           {tracks.map((track) => {
-            const estaTocandoEsta = musicaTocando?.id === track.id && estaTocandoMusica;
+            const estaTocandoEsta = musicaTocando?.id === track.id && estaTocando;
             return (
               <li
                 key={track.id}
@@ -391,7 +475,11 @@ export default function LocucaoHome() {
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
                   <button
-                    onClick={() => tocarMusicaNaTransmissao(track)}
+                    onClick={() =>
+                      dispararAudioNaTransmissao(() => {
+                        tocar(track);
+                      })
+                    }
                     className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm transition active:scale-90 ${
                       estaTocandoEsta ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
                     }`}
@@ -408,7 +496,11 @@ export default function LocucaoHome() {
                 </div>
 
                 <button
-                  onClick={() => tocarMusicaNaTransmissao(track)}
+                  onClick={() =>
+                    dispararAudioNaTransmissao(() => {
+                      tocar(track);
+                    })
+                  }
                   className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95 shadow-xs ${
                     estaTocandoEsta
                       ? 'bg-[#b3261e] text-white'
@@ -423,7 +515,7 @@ export default function LocucaoHome() {
 
           {tracks.length === 0 && (
             <p className="py-6 text-center text-xs text-[#a0937a]">
-              Nenhuma música na playlist. Acesse a aba <b>Músicas</b> para adicionar.
+              Nenhuma música na biblioteca. Acesse a aba <b>Músicas</b> para adicionar.
             </p>
           )}
         </ul>
@@ -431,5 +523,3 @@ export default function LocucaoHome() {
     </div>
   );
 }
-
-

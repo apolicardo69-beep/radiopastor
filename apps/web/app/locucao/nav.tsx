@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+import { usePlayer } from '@/lib/PlayerContext';
+
 const ITENS = [
   { href: '/locucao', label: 'Estúdio', icone: '🎙️' },
   { href: '/locucao/musicas', label: 'Músicas', icone: '🎵' },
@@ -17,6 +19,18 @@ export default function LocucaoNav({ nome }: { nome: string }) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
+  const {
+    musicaTocando,
+    estaTocando,
+    playlistAtiva,
+    filaPlaylist,
+    indiceFila,
+    pausar,
+    retomar,
+    pararPlaylist,
+    proxima,
+    anterior,
+  } = usePlayer();
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
   const [jaInstalado, setJaInstalado] = useState(false);
@@ -169,8 +183,74 @@ export default function LocucaoNav({ nome }: { nome: string }) {
         </nav>
       </header>
 
-      {/* Barra Flutuante de Instalação no Estúdio */}
-      {!jaInstalado && !bannerFechado && (
+      {/* Mini Player Persistente Flutuante (aparece em qualquer aba quando há música tocando ou carregada) */}
+      {musicaTocando && (
+        <aside
+          aria-label="Player de Áudio em Reprodução"
+          className="fixed bottom-3 left-3 right-3 z-50 mx-auto max-w-md animate-in slide-in-from-bottom duration-300"
+        >
+          <div className="flex items-center justify-between gap-3 rounded-3xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30 backdrop-blur-md">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <span className={`text-xl ${estaTocando ? 'animate-spin' : ''}`}>💿</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-black text-[#f7f1e6]">
+                  {musicaTocando.title}
+                </p>
+                <p className="truncate text-[10px] text-[#d9c9a8]">
+                  {playlistAtiva
+                    ? `📋 ${playlistAtiva.name} (${indiceFila + 1}/${filaPlaylist.length})`
+                    : '🎵 Som no Ar'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1 shrink-0">
+              {playlistAtiva && filaPlaylist.length > 1 && (
+                <button
+                  onClick={anterior}
+                  disabled={indiceFila <= 0}
+                  className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/80 hover:bg-white/20 disabled:opacity-30 active:scale-95"
+                  title="Música anterior"
+                >
+                  ⏮
+                </button>
+              )}
+
+              <button
+                onClick={estaTocando ? pausar : retomar}
+                className={`flex h-8 w-8 items-center justify-center rounded-2xl text-xs font-bold text-white shadow-md transition active:scale-95 ${
+                  estaTocando ? 'bg-[#b3261e] hover:bg-[#8f1e17]' : 'bg-[#2f6b4f] hover:bg-[#255740]'
+                }`}
+                title={estaTocando ? 'Pausar' : 'Continuar tocando'}
+              >
+                {estaTocando ? '⏸' : '▶'}
+              </button>
+
+              {playlistAtiva && filaPlaylist.length > 1 && (
+                <button
+                  onClick={proxima}
+                  disabled={indiceFila >= filaPlaylist.length - 1}
+                  className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/80 hover:bg-white/20 disabled:opacity-30 active:scale-95"
+                  title="Próxima música"
+                >
+                  ⏭
+                </button>
+              )}
+
+              <button
+                onClick={pararPlaylist}
+                className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/60 hover:text-white hover:bg-white/20 active:scale-95"
+                title="Parar e fechar player"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* Barra Flutuante de Instalação no Estúdio (só aparece se o player não estiver cobrindo) */}
+      {!jaInstalado && !bannerFechado && !musicaTocando && (
         <aside aria-label="Instalar Estúdio" className="fixed bottom-3 left-3 right-3 z-40 mx-auto max-w-md animate-in slide-in-from-bottom duration-300">
           <div className="flex items-center justify-between gap-2.5 rounded-3xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30 backdrop-blur-md">
             <div className="flex items-center gap-2.5 min-w-0">
@@ -211,4 +291,5 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     </>
   );
 }
+
 
