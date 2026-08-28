@@ -38,9 +38,7 @@ export default function ListenerPage() {
   
   // Estados para PWA
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
-  const [mostrarDicaIos, setMostrarDicaIos] = useState(false);
   const [jaInstalado, setJaInstalado] = useState(false);
-  const [bannerFechado, setBannerFechado] = useState(true); // default true until verified
 
   const sponsorsRef = useRef<Sponsor[]>([]);
   const trackCountRef = useRef(0);
@@ -64,16 +62,7 @@ export default function ListenerPage() {
 
       if (isStandalone) {
         setJaInstalado(true);
-        setBannerFechado(true);
         return;
-      }
-
-      // Se o ouvinte já fechou o banner antes, não fica mostrando repetidamente
-      const dismissed = localStorage.getItem('pwa_banner_dismissed_home') === 'true';
-      if (dismissed) {
-        setBannerFechado(true);
-      } else {
-        setBannerFechado(false);
       }
 
       // Evento nativo disparado quando o app é instalado pelo navegador
@@ -82,7 +71,7 @@ export default function ListenerPage() {
           localStorage.setItem('pwa_app_installed', 'true');
         } catch {}
         setJaInstalado(true);
-        setBannerFechado(true);
+        setPromptInstalacao(null);
       };
       window.addEventListener('appinstalled', handleAppInstalled);
 
@@ -112,7 +101,6 @@ export default function ListenerPage() {
         window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       };
     }
-  }, []);
 
     async function carregarSponsors() {
       const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
@@ -400,29 +388,19 @@ export default function ListenerPage() {
     setTempoGravacao(0);
   }
 
-  function fecharBannerHome() {
-    setBannerFechado(true);
-    try {
-      localStorage.setItem('pwa_banner_dismissed_home', 'true');
-    } catch {}
-  }
-
   async function handleInstalarApp() {
     if (promptInstalacao) {
-      promptInstalacao.prompt();
       try {
+        promptInstalacao.prompt();
         const { outcome } = await promptInstalacao.userChoice;
         if (outcome === 'accepted') {
           try {
             localStorage.setItem('pwa_app_installed', 'true');
           } catch {}
           setJaInstalado(true);
-          setBannerFechado(true);
         }
       } catch {}
       setPromptInstalacao(null);
-    } else {
-      setMostrarDicaIos(true);
     }
   }
 
@@ -473,43 +451,6 @@ export default function ListenerPage() {
         </div>
       )}
 
-      {/* Modal de Dica de Instalação (PWA) */}
-      {mostrarDicaIos && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-sm rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl border border-[#d9c9a8]">
-            <button
-              onClick={() => setMostrarDicaIos(false)}
-              className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
-            >
-              ✕
-            </button>
-            <img
-              src="/icons/icon-192x192.png"
-              alt="Rádio Graça & Paz"
-              className="mx-auto mb-3 h-16 w-16 rounded-2xl shadow-md border border-[#d9c9a8]"
-            />
-            <h3 className="text-base font-extrabold text-[#2b2118]">Instalar Rádio no Celular</h3>
-            
-            <div className="mt-3 rounded-2xl bg-white p-3 text-left text-xs text-[#5c4a35] leading-relaxed shadow-xs border border-[#d9c9a8]">
-              <p className="font-bold text-[#2b2118] mb-1">📱 No Android / Chrome:</p>
-              <p>Toque nos <b>3 pontinhos (⋮)</b> no canto superior do navegador e selecione <b>&quot;Instalar aplicativo&quot;</b> ou <b>&quot;Adicionar à tela inicial&quot;</b>.</p>
-              
-              <hr className="my-2 border-[#f0e6d2]" />
-              
-              <p className="font-bold text-[#2b2118] mb-1">🍎 No iPhone / Safari:</p>
-              <p>1. Toque em <b>Compartilhar</b> <span className="text-sm">⎋</span>.<br />2. Selecione <b>&quot;Adicionar à Tela de Início&quot;</b> ➕.<br />3. Toque em <b>Adicionar</b>.</p>
-            </div>
-
-            <button
-              onClick={() => setMostrarDicaIos(false)}
-              className="mt-4 w-full rounded-2xl bg-[#2b2118] py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#1a140e] transition active:scale-95"
-            >
-              Entendi, obrigado!
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Topo da Rádio (Mobile Header) */}
       <header className="sticky top-0 z-30 border-b border-[#d9c9a8] bg-[#f7f1e6]/90 backdrop-blur-md px-4 py-3 shadow-xs">
         <div className="mx-auto flex max-w-md items-center justify-between">
@@ -542,11 +483,11 @@ export default function ListenerPage() {
             </div>
           </div>
 
-          {/* Botão de Instalação PWA no Topo */}
-          {!jaInstalado && (
+          {/* Botão de Instalação PWA no Topo (só aparece se o navegador tiver suporte a 1-clique e o app não estiver instalado) */}
+          {!jaInstalado && promptInstalacao && (
             <button
               onClick={handleInstalarApp}
-              className="flex items-center gap-1 rounded-2xl bg-[#2b2118] px-3 py-1.5 text-[11px] font-bold text-[#f7f1e6] shadow-sm hover:bg-[#1a140e] transition active:scale-95"
+              className="flex items-center gap-1 rounded-2xl bg-[#2b2118] px-3 py-1.5 text-[11px] font-bold text-[#f7f1e6] shadow-sm hover:bg-[#1a140e] transition active:scale-95 animate-pulse"
               title="Instalar Aplicativo da Rádio"
             >
               <span>📲</span>
@@ -824,46 +765,6 @@ export default function ListenerPage() {
           </div>
         </section>
       </main>
-
-      {/* Barra Fixa Flutuante de Instalação do Aplicativo (PWA) */}
-      {!jaInstalado && !bannerFechado && (
-        <aside aria-label="Instalação do Aplicativo" className="fixed bottom-3 left-3 right-3 z-40 mx-auto max-w-md animate-in slide-in-from-bottom duration-300">
-          <div className="flex items-center justify-between gap-2.5 rounded-3xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30 backdrop-blur-md">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <img
-                src="/icons/icon-192x192.png"
-                alt="App Icon"
-                className="h-11 w-11 shrink-0 rounded-2xl border border-white/20 shadow-xs"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-black text-[#f7f1e6]">
-                  Instalar Rádio Graça &amp; Paz
-                </p>
-                <p className="truncate text-[10px] text-[#a0937a]">
-                  Ouça com tela bloqueada e sem travar
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={handleInstalarApp}
-                className="rounded-2xl bg-[#2f6b4f] px-3.5 py-2 text-xs font-bold text-white shadow-md hover:bg-[#255740] transition active:scale-95 flex items-center gap-1 animate-pulse"
-              >
-                <span>📲</span>
-                <span>Instalar</span>
-              </button>
-              <button
-                onClick={fecharBannerHome}
-                className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/70 hover:text-white"
-                title="Fechar aviso"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        </aside>
-      )}
     </div>
   );
 }

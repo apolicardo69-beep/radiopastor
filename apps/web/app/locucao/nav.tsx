@@ -34,8 +34,6 @@ export default function LocucaoNav({ nome }: { nome: string }) {
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
   const [jaInstalado, setJaInstalado] = useState(false);
-  const [bannerFechado, setBannerFechado] = useState(true); // default true until verified
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -48,23 +46,16 @@ export default function LocucaoNav({ nome }: { nome: string }) {
 
     if (isStandalone) {
       setJaInstalado(true);
-      setBannerFechado(true);
       return;
-    }
-
-    // Se o usuário já fechou o banner antes, respeita e não fica abrindo
-    const dismissed = localStorage.getItem('pwa_banner_dismissed_locucao') === 'true';
-    if (dismissed) {
-      setBannerFechado(true);
-    } else {
-      setBannerFechado(false);
     }
 
     // Evento nativo disparado quando o app é instalado pelo navegador
     const handleAppInstalled = () => {
-      localStorage.setItem('pwa_app_installed', 'true');
+      try {
+        localStorage.setItem('pwa_app_installed', 'true');
+      } catch {}
       setJaInstalado(true);
-      setBannerFechado(true);
+      setPromptInstalacao(null);
     };
     window.addEventListener('appinstalled', handleAppInstalled);
 
@@ -95,22 +86,7 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     };
   }, []);
 
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toastMsg) return;
-    const timer = setTimeout(() => setToastMsg(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toastMsg]);
-
-  function fecharBanner() {
-    setBannerFechado(true);
-    try {
-      localStorage.setItem('pwa_banner_dismissed_locucao', 'true');
-    } catch {}
-  }
-
   async function handleInstalarApp() {
-    // Tentar o prompt local ou o global
     const prompt = promptInstalacao || (typeof window !== 'undefined' && (window as any).__pwaInstallPrompt);
     if (prompt) {
       try {
@@ -121,20 +97,11 @@ export default function LocucaoNav({ nome }: { nome: string }) {
             localStorage.setItem('pwa_app_installed', 'true');
           } catch {}
           setJaInstalado(true);
-          setBannerFechado(true);
         }
       } catch {}
       setPromptInstalacao(null);
       if (typeof window !== 'undefined') {
         (window as any).__pwaInstallPrompt = null;
-      }
-    } else {
-      // iOS Safari ou navegadores sem suporte — toast breve
-      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
-      if (isIos) {
-        setToastMsg('📱 No Safari: toque em Compartilhar ⎋ → "Adicionar à Tela de Início"');
-      } else {
-        setToastMsg('📱 Toque nos 3 pontinhos (⋮) → "Instalar aplicativo"');
       }
     }
   }
@@ -146,21 +113,6 @@ export default function LocucaoNav({ nome }: { nome: string }) {
 
   return (
     <>
-      {/* Toast de dica de instalação (fallback para iOS / navegadores sem suporte) */}
-      {toastMsg && (
-        <div className="fixed top-4 left-3 right-3 z-[60] mx-auto max-w-md animate-in slide-in-from-top duration-300">
-          <div className="flex items-center justify-between gap-2 rounded-2xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30">
-            <p className="text-xs font-semibold flex-1">{toastMsg}</p>
-            <button
-              onClick={() => setToastMsg(null)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white/10 text-[10px] text-white/70 hover:text-white"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
       <header className="sticky top-0 z-40 border-b border-[#d9c9a8] bg-white/95 backdrop-blur-md shadow-xs">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-2.5">
           <div className="flex items-center gap-2">
@@ -176,7 +128,8 @@ export default function LocucaoNav({ nome }: { nome: string }) {
           </div>
 
           <div className="flex items-center gap-2">
-            {!jaInstalado && (
+            {/* Só mostra botão de instalar se realmente houver suporte a 1-clique do navegador e não estiver instalado */}
+            {!jaInstalado && promptInstalacao && (
               <button
                 onClick={handleInstalarApp}
                 className="flex items-center gap-1 rounded-xl bg-[#2b2118] px-2.5 py-1 text-xs font-bold text-[#f7f1e6] shadow-xs hover:bg-[#1a140e] transition active:scale-95 animate-pulse"
@@ -281,48 +234,6 @@ export default function LocucaoNav({ nome }: { nome: string }) {
           </div>
         </aside>
       )}
-
-      {/* Barra Flutuante de Instalação no Estúdio (só aparece se o player não estiver cobrindo) */}
-      {!jaInstalado && !bannerFechado && !musicaTocando && (
-        <aside aria-label="Instalar Estúdio" className="fixed bottom-3 left-3 right-3 z-40 mx-auto max-w-md animate-in slide-in-from-bottom duration-300">
-          <div className="flex items-center justify-between gap-2.5 rounded-3xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30 backdrop-blur-md">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <img
-                src="/icons/icon-192x192.png"
-                alt="App Icon"
-                className="h-10 w-10 shrink-0 rounded-2xl border border-white/20 shadow-xs"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-black text-[#f7f1e6]">
-                  Instalar Estúdio no Celular
-                </p>
-                <p className="truncate text-[10px] text-[#a0937a]">
-                  Transmita e controle a rádio direto do app
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={handleInstalarApp}
-                className="rounded-2xl bg-[#2f6b4f] px-3 py-1.5 text-xs font-bold text-white shadow-md hover:bg-[#255740] transition active:scale-95 flex items-center gap-1"
-              >
-                <span>📲</span>
-                <span>Instalar</span>
-              </button>
-              <button
-                onClick={fecharBanner}
-                className="flex h-7 w-7 items-center justify-center rounded-xl bg-white/10 text-xs text-white/70 hover:text-white"
-                title="Fechar aviso"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        </aside>
-      )}
     </>
   );
 }
-
-
