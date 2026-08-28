@@ -50,6 +50,7 @@ export default function ListenerPage() {
   // Estados para PWA
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
   const [jaInstalado, setJaInstalado] = useState(false);
+  const [modalAjudaInstalacao, setModalAjudaInstalacao] = useState(false);
 
   const sponsorsRef = useRef<Sponsor[]>([]);
   const trackCountRef = useRef(0);
@@ -82,13 +83,12 @@ export default function ListenerPage() {
       }
     });
 
-    // Verificar se já está rodando como app instalado
+    // Verificar se já está rodando como app instalado (standalone)
     if (typeof window !== 'undefined') {
       const isStandalone =
         window.matchMedia('(display-mode: standalone)').matches ||
         (window.navigator as any).standalone === true ||
-        document.referrer.includes('android-app://') ||
-        localStorage.getItem('pwa_app_installed') === 'true';
+        document.referrer.includes('android-app://');
 
       if (isStandalone) {
         setJaInstalado(true);
@@ -521,16 +521,17 @@ export default function ListenerPage() {
   async function handleInstalarApp() {
     if (promptInstalacao) {
       try {
-        promptInstalacao.prompt();
+        await promptInstalacao.prompt();
         const { outcome } = await promptInstalacao.userChoice;
         if (outcome === 'accepted') {
-          try {
-            localStorage.setItem('pwa_app_installed', 'true');
-          } catch {}
           setJaInstalado(true);
         }
-      } catch {}
+      } catch {
+        setModalAjudaInstalacao(true);
+      }
       setPromptInstalacao(null);
+    } else {
+      setModalAjudaInstalacao(true);
     }
   }
 
@@ -578,6 +579,62 @@ export default function ListenerPage() {
             )}
             <h2 className="mb-1 text-xl font-extrabold text-[#2b2118]">{sponsor.name}</h2>
             {sponsor.tagline && <p className="text-xs font-medium text-[#5c4a35]">{sponsor.tagline}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Ajuda de Instalação do Ouvinte */}
+      {modalAjudaInstalacao && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-sm rounded-3xl bg-[#2b2118] p-6 text-white shadow-2xl border border-[#d9c9a8]/50">
+            <button
+              onClick={() => setModalAjudaInstalacao(false)}
+              className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-sm font-bold text-white/80 hover:bg-white/20"
+            >
+              ✕
+            </button>
+
+            <div className="flex flex-col items-center text-center">
+              <img
+                src="/icons/icon-192x192.png"
+                alt="Ícone da Rádio"
+                className="h-16 w-16 rounded-2xl border border-[#d9c9a8] shadow-lg mb-3 object-cover"
+              />
+              <h3 className="text-base font-black text-[#f7f1e6]">
+                Instalar Rádio Graça &amp; Paz
+              </h3>
+              <p className="mt-1 text-xs text-[#d9c9a8]">
+                Instale o aplicativo para ouvir com a tela do celular apagada:
+              </p>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-white/5 p-4 text-xs space-y-3 border border-white/10 text-left">
+              <div className="flex items-start gap-2.5">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2f6b4f] text-[10px] font-bold text-white">1</span>
+                <p>
+                  No <strong>Android (Chrome)</strong>: Toque nos <strong className="text-[#f7f1e6]">3 pontinhos (⋮)</strong> e escolha <strong className="text-[#f7f1e6]">&apos;Instalar aplicativo&apos;</strong>.
+                </p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2f6b4f] text-[10px] font-bold text-white">2</span>
+                <p>
+                  No <strong>iPhone (Safari)</strong>: Toque em <strong className="text-[#f7f1e6]">Compartilhar (⎋)</strong> e selecione <strong className="text-[#f7f1e6]">&apos;Adicionar à Tela de Início&apos; (➕)</strong>.
+                </p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#2f6b4f] text-[10px] font-bold text-white">3</span>
+                <p>
+                  No <strong>Computador</strong>: Clique no ícone de <strong className="text-[#f7f1e6]">Instalar (🖥️)</strong> na barra de endereços do navegador.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setModalAjudaInstalacao(false)}
+              className="mt-5 w-full rounded-2xl bg-[#2f6b4f] py-3 text-xs font-bold text-white shadow-md hover:bg-[#255740] transition active:scale-95"
+            >
+              Entendi!
+            </button>
           </div>
         </div>
       )}

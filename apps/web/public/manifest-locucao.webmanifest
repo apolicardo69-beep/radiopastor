@@ -1,15 +1,19 @@
 {
   "name": "Locução — Graça & Paz",
   "short_name": "Locução",
-  "description": "Painel do pastor e da equipe: ir ao ar, playlist, mensagens, convidados e patrocinadores.",
+  "description": "Console de transmissão e estúdio ao vivo da Rádio Graça & Paz.",
+  "id": "/locucao",
   "start_url": "/locucao",
   "scope": "/locucao",
   "display": "standalone",
-  "background_color": "#f7f1e6",
+  "orientation": "any",
+  "background_color": "#181210",
   "theme_color": "#b3261e",
   "icons": [
-    { "src": "/icons/icon-locucao-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-locucao-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-locucao-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-locucao-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-locucao-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-locucao-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon-locucao-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon-locucao-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
