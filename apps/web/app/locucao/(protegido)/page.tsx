@@ -26,13 +26,16 @@ interface OuvinteOnline {
   online_at?: string;
 }
 
-const INITIAL_SLOTS: JingleSlot[] = [
-  { id: 1, name: 'Vinheta Principal', audio_url: null, storage_path: null },
-  { id: 2, name: 'Abertura / Chamada', audio_url: null, storage_path: null },
-  { id: 3, name: 'Passagem de Bloco', audio_url: null, storage_path: null },
-  { id: 4, name: 'Fundo de Oração', audio_url: null, storage_path: null },
-  { id: 5, name: 'Hora Certa / Ao Vivo', audio_url: null, storage_path: null },
-  { id: 6, name: 'Efeito / Aplausos', audio_url: null, storage_path: null },
+// Nomes padrão dos 6 botões — usados como estado inicial (antes da tabela
+// jingle_slots carregar) e como fallback se, por algum motivo, a migration
+// 0004_jingle_slots.sql ainda não tiver rodado nesse projeto Supabase.
+const SLOTS_PADRAO: JingleSlot[] = [
+  { id: 1, name: 'Vinheta Principal', audio_url: null, storage_path: null, source_url: null },
+  { id: 2, name: 'Abertura / Chamada', audio_url: null, storage_path: null, source_url: null },
+  { id: 3, name: 'Passagem de Bloco', audio_url: null, storage_path: null, source_url: null },
+  { id: 4, name: 'Fundo de Oração', audio_url: null, storage_path: null, source_url: null },
+  { id: 5, name: 'Hora Certa / Ao Vivo', audio_url: null, storage_path: null, source_url: null },
+  { id: 6, name: 'Efeito / Aplausos', audio_url: null, storage_path: null, source_url: null },
 ];
 
 const CORES_SLOTS = [
@@ -52,6 +55,7 @@ export default function LocucaoHome() {
     iniciar,
     parar,
     volumeMic,
+    nivelMic,
     alterarVolumeMic,
     alterarVolumeMusica,
     conectarElementoAudio,
@@ -86,7 +90,7 @@ export default function LocucaoHome() {
   const [modalOuvintesAberto, setModalOuvintesAberto] = useState(false);
 
   // Cartucheira de Vinhetas (6 Botões de Disparo Imediato)
-  const [jingleSlots, setJingleSlots] = useState<JingleSlot[]>(INITIAL_SLOTS);
+  const [jingleSlots, setJingleSlots] = useState<JingleSlot[]>(SLOTS_PADRAO);
   const [slotTocando, setSlotTocando] = useState<number | null>(null);
   const [slotEditando, setSlotEditando] = useState<JingleSlot | null>(null);
   const [nomeEditando, setNomeEditando] = useState('');
@@ -116,19 +120,40 @@ export default function LocucaoHome() {
     }
   }
 
+  // Busca a configuração da cartucheira no banco (jingle_slots), pra ela ser
+  // a mesma em qualquer aparelho em que o pastor/moderador entrar — antes
+  // isso ficava só no localStorage de cada navegador.
+  async function carregarJingleSlots() {
+    const { data } = await supabase.from('jingle_slots').select('*').order('id', { ascending: true });
+    const porId = new Map((data || []).map((s) => [s.id as number, s]));
+
+    const completos: JingleSlot[] = SLOTS_PADRAO.map((padrao) => {
+      const salvo = porId.get(padrao.id);
+      if (!salvo) return padrao;
+
+      let audio_url: string | null = null;
+      if (salvo.source_url) {
+        audio_url = salvo.source_url;
+      } else if (salvo.storage_path) {
+        const { data: pub } = supabase.storage.from('musicas').getPublicUrl(salvo.storage_path);
+        audio_url = pub.publicUrl;
+      }
+
+      return {
+        id: salvo.id,
+        name: salvo.name || padrao.name,
+        storage_path: salvo.storage_path ?? null,
+        source_url: salvo.source_url ?? null,
+        audio_url,
+      };
+    });
+
+    setJingleSlots(completos);
+  }
+
   useEffect(() => {
     carregarDados();
-
-    // Carregar configuração salva dos 6 slots de vinhetas
-    try {
-      const salvos = localStorage.getItem('graca_paz_cartucheira_slots');
-      if (salvos) {
-        const parsed = JSON.parse(salvos);
-        if (Array.isArray(parsed) && parsed.length === 6) {
-          setJingleSlots(parsed);
-        }
-      }
-    } catch {}
+    carregarJingleSlots();
 
     // Monitorar ouvintes online em tempo real
     const presenceChannel = supabase.channel('radio-presence-ouvintes');
@@ -156,6 +181,7 @@ export default function LocucaoHome() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tracks' }, () => carregarDados())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'playlists' }, () => carregarDados())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'playlist_items' }, () => carregarDados())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jingle_slots' }, () => carregarJingleSlots())
       .subscribe();
 
     return () => {
@@ -257,13 +283,11 @@ export default function LocucaoHome() {
     }
   }
 
-  function salvarSlots(novosSlots: JingleSlot[]) {
-    setJingleSlots(novosSlots);
-    try {
-      localStorage.setItem('graca_paz_cartucheira_slots', JSON.stringify(novosSlots));
-    } catch {}
-  }
-
+  // As tr\u00eas fun\u00e7\u00f5es abaixo gravam direto na tabela jingle_slots (upsert:
+  // atualiza a linha do bot\u00e3o se ela j\u00e1 existe, cria se n\u00e3o existe) e depois
+  // recarregam do banco \u2014 assim a cartucheira fica igual em qualquer
+  // aparelho que o pastor ou um moderador use, em vez de presa a um
+  // navegador s\u00f3.
   async function handleUploadArquivoVinheta(file: File) {
     if (!slotEditando) return;
     setEnviandoVinheta(true);
@@ -277,20 +301,15 @@ export default function LocucaoHome() {
       const { error: erroUpload } = await supabase.storage.from('musicas').upload(caminho, file);
       if (erroUpload) throw erroUpload;
 
-      const { data } = supabase.storage.from('musicas').getPublicUrl(caminho);
-      const url = data.publicUrl;
+      const { error: erroSalvar } = await supabase.from('jingle_slots').upsert({
+        id: slotEditando.id,
+        name: nomeEditando.trim() || slotEditando.name,
+        storage_path: caminho,
+        source_url: null,
+      });
+      if (erroSalvar) throw erroSalvar;
 
-      const novos = jingleSlots.map((s) =>
-        s.id === slotEditando.id
-          ? {
-              ...s,
-              name: nomeEditando.trim() || s.name,
-              audio_url: url,
-              storage_path: caminho,
-            }
-          : s
-      );
-      salvarSlots(novos);
+      await carregarJingleSlots();
       setSlotEditando(null);
     } catch (err: any) {
       alert(`Erro no upload da vinheta: ${err.message || 'tente novamente'}`);
@@ -299,34 +318,31 @@ export default function LocucaoHome() {
     }
   }
 
-  function selecionarTrackParaVinheta(track: Track) {
+  async function selecionarTrackParaVinheta(track: Track) {
     if (!slotEditando) return;
-    let url = track.source_url || '';
-    if (track.storage_path) {
-      const { data } = supabase.storage.from('musicas').getPublicUrl(track.storage_path);
-      url = data.publicUrl;
+    const { error } = await supabase.from('jingle_slots').upsert({
+      id: slotEditando.id,
+      name: nomeEditando.trim() || track.title,
+      storage_path: track.source === 'upload' ? track.storage_path : null,
+      source_url: track.source === 'link' ? track.source_url : null,
+    });
+    if (error) {
+      alert(`N\u00e3o consegui salvar a vinheta: ${error.message}`);
+      return;
     }
-    if (!url) return;
-
-    const novos = jingleSlots.map((s) =>
-      s.id === slotEditando.id
-        ? {
-            ...s,
-            name: nomeEditando.trim() || track.title,
-            audio_url: url,
-            storage_path: track.storage_path,
-          }
-        : s
-    );
-    salvarSlots(novos);
+    await carregarJingleSlots();
     setSlotEditando(null);
   }
 
-  function limparSlotVinheta(id: number) {
-    const novos = jingleSlots.map((s) =>
-      s.id === id ? { ...s, audio_url: null, storage_path: null } : s
-    );
-    salvarSlots(novos);
+  async function limparSlotVinheta(id: number) {
+    const nomeAtual = jingleSlots.find((s) => s.id === id)?.name || `Bot\u00e3o ${id}`;
+    const { error } = await supabase.from('jingle_slots').upsert({
+      id,
+      name: nomeAtual,
+      storage_path: null,
+      source_url: null,
+    });
+    if (!error) await carregarJingleSlots();
     setSlotEditando(null);
     if (slotTocando === id) pararVinhetas();
   }
@@ -459,11 +475,15 @@ export default function LocucaoHome() {
             </div>
 
             <button
-              onClick={() => {
-                const novos = jingleSlots.map((s) =>
-                  s.id === slotEditando.id ? { ...s, name: nomeEditando.trim() || s.name } : s
-                );
-                salvarSlots(novos);
+              onClick={async () => {
+                if (!slotEditando) return;
+                const { error } = await supabase.from('jingle_slots').upsert({
+                  id: slotEditando.id,
+                  name: nomeEditando.trim() || slotEditando.name,
+                  storage_path: slotEditando.storage_path,
+                  source_url: slotEditando.source_url ?? null,
+                });
+                if (!error) await carregarJingleSlots();
                 setSlotEditando(null);
               }}
               className="mt-3 w-full rounded-2xl bg-[#2f6b4f] py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#255740] transition active:scale-95"
@@ -592,6 +612,36 @@ export default function LocucaoHome() {
             <span className="mt-1 text-sm">{noAr ? 'Encerrar' : 'Ir ao Ar'}</span>
           </button>
         </div>
+
+        {/* Medidor de nível do microfone: confirmação visual de que o áudio
+            está sendo captado de verdade, sem precisar confiar só no texto
+            "AO VIVO". As barrinhas acendem em tempo real conforme o volume
+            da fala — bem mais tranquilizador pra quem não é da área técnica. */}
+        {noAr && (
+          <div className="mt-3 flex flex-col items-center gap-1.5">
+            <div className="flex items-end justify-center gap-1.5" style={{ height: 26 }}>
+              {[0.1, 0.24, 0.4, 0.58, 0.78].map((limite, i) => {
+                const aceso = nivelMic >= limite;
+                const cor = i < 3 ? '#2f6b4f' : i === 3 ? '#8a6d3b' : '#b3261e';
+                return (
+                  <span
+                    key={i}
+                    style={{
+                      width: 6,
+                      height: 10 + i * 4,
+                      borderRadius: 3,
+                      backgroundColor: aceso ? cor : '#e4d6be',
+                      transition: 'background-color 80ms linear',
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <span className="text-[10px] font-semibold text-[#7a6a52]">
+              🎤 Captando áudio do microfone
+            </span>
+          </div>
+        )}
 
         {erroBroadcast && (
           <p className="mt-4 rounded-xl bg-[#fbeaea] p-3 text-xs font-semibold text-[#b3261e]">

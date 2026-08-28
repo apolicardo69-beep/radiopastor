@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import PwaInstallLocucao from '../PwaInstallLocucao';
 
 export default function EntrarPage() {
   const router = useRouter();
@@ -29,16 +30,22 @@ export default function EntrarPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#f7f1e6] px-4 py-8">
       <div className="mb-6 flex flex-col items-center gap-2 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-[#2b2118] text-2xl shadow-md">
-          📻
-        </div>
+        <img
+          src="/icons/icon-locucao-192.png"
+          alt="Ícone Estúdio"
+          className="h-16 w-16 rounded-3xl bg-[#241b18] p-1 shadow-md border-2 border-[#d4af37]/50"
+        />
         <h1 className="text-xl font-bold text-[#2b2118]">Rádio Graça &amp; Paz</h1>
         <p className="text-xs text-[#7a6a52]">Console do Locutor &amp; Estúdio</p>
       </div>
 
+      <div className="w-full max-w-sm">
+        <PwaInstallLocucao />
+      </div>
+
       <form
         onSubmit={entrar}
-        className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-md"
+        className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-md border border-[#d9c9a8]/40"
       >
         <h2 className="mb-4 text-base font-bold text-[#2b2118]">Acessar o Estúdio</h2>
 

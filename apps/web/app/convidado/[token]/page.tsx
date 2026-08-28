@@ -18,7 +18,7 @@ export default function ConvidadoPage() {
   const [guest, setGuest] = useState<GuestInfo | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [ouvindo, setOuvindo] = useState(false);
-  const { status, erro, iniciar, parar } = useAudioBroadcast('guest');
+  const { status, erro, iniciar, parar, nivelMic } = useAudioBroadcast('guest');
 
   useEffect(() => {
     supabase
@@ -100,6 +100,33 @@ export default function ConvidadoPage() {
           <span className="text-3xl">{aoVivo ? '🛑' : '🎙️'}</span>
           <span className="mt-1">{aoVivo ? 'Sair do Ar' : 'Entrar ao Vivo'}</span>
         </button>
+
+        {aoVivo && (
+          <div className="mt-4 flex flex-col items-center gap-1.5">
+            <div className="flex items-end justify-center gap-1.5" style={{ height: 26 }}>
+              {[0.1, 0.24, 0.4, 0.58, 0.78].map((limite, i) => {
+                const aceso = nivelMic >= limite;
+                const cor = i < 3 ? '#2f6b4f' : i === 3 ? '#8a6d3b' : '#b3261e';
+                return (
+                  <span
+                    key={i}
+                    style={{
+                      width: 6,
+                      height: 10 + i * 4,
+                      borderRadius: 3,
+                      backgroundColor: aceso ? cor : '#e4d6be',
+                      transition: 'background-color 80ms linear',
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <span className="text-[10px] font-semibold text-[#7a6a52]">
+              🎤 Captando áudio do microfone
+            </span>
+          </div>
+        )}
+
         {erro && (
           <p className="mt-4 rounded-xl bg-[#fbeaea] p-2.5 text-xs font-semibold text-[#b3261e]">
             {erro}

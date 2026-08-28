@@ -89,8 +89,12 @@ export interface PlaylistItem {
 export interface JingleSlot {
   id: number; // 1 a 6
   name: string;
+  // audio_url é resolvido no cliente (a partir de storage_path ou
+  // source_url) — a tabela jingle_slots no banco não tem essa coluna, só
+  // guarda de onde o áudio vem, igual a tabela tracks.
   audio_url: string | null;
   storage_path: string | null;
+  source_url?: string | null;
   duration_seconds?: number | null;
 }
 

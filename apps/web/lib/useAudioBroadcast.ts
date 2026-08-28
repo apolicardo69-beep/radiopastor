@@ -16,6 +16,12 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const [erro, setErro] = useState<string | null>(null);
   const [volumeMic, setVolumeMic] = useState<number>(1);
   const [volumeMusica, setVolumeMusica] = useState<number>(0.8);
+  // Nível do microfone (0 a 1) atualizado várias vezes por segundo enquanto
+  // está ao vivo — é o que alimenta o medidor de barrinhas na tela do
+  // Estúdio, pra dar uma confirmação visual de que o áudio está sendo
+  // captado de verdade (bem mais tranquilizador do que só confiar no texto
+  // "AO VIVO" pra quem não é da área técnica).
+  const [nivelMic, setNivelMic] = useState(0);
 
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -32,7 +38,20 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const vinhetaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const connectedVinhetaElRef = useRef<HTMLAudioElement | null>(null);
 
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const analyserDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const medidorRafRef = useRef<number | null>(null);
+
+  const pararMedidorNivel = useCallback(() => {
+    if (medidorRafRef.current !== null) {
+      cancelAnimationFrame(medidorRafRef.current);
+      medidorRafRef.current = null;
+    }
+    setNivelMic(0);
+  }, []);
+
   const parar = useCallback(() => {
+    pararMedidorNivel();
     recorderRef.current?.stop();
     recorderRef.current = null;
     wsRef.current?.close();
@@ -52,9 +71,11 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     vinhetaGainNodeRef.current = null;
     vinhetaSourceNodeRef.current = null;
     connectedVinhetaElRef.current = null;
+    analyserRef.current = null;
+    analyserDataRef.current = null;
 
     setStatus('parado');
-  }, []);
+  }, [pararMedidorNivel]);
 
   function iniciarGravacao(stream: MediaStream, ws: WebSocket) {
     const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
@@ -188,6 +209,35 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
           micSource.connect(micGain);
           micGain.connect(dest);
 
+          // Medidor de nível: "escuta" o sinal do microfone JÁ com o ganho
+          // aplicado (então Mudo/Boost também refletem no medidor), sem
+          // interferir no áudio que realmente vai pro ar — um nó de análise
+          // só lê o sinal, não altera o que passa por ele.
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          analyser.smoothingTimeConstant = 0.65;
+          micGain.connect(analyser);
+          analyserRef.current = analyser;
+          analyserDataRef.current = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+
+          const medirNivel = () => {
+            const an = analyserRef.current;
+            const arr = analyserDataRef.current;
+            if (!an || !arr) return;
+            an.getByteTimeDomainData(arr);
+            let somaQuadrados = 0;
+            for (let i = 0; i < arr.length; i++) {
+              const v = (arr[i] - 128) / 128;
+              somaQuadrados += v * v;
+            }
+            const rms = Math.sqrt(somaQuadrados / arr.length);
+            // Fala normal raramente satura o RMS bruto — amplifica pra o
+            // medidor responder de um jeito visualmente útil.
+            setNivelMic(Math.min(1, rms * 4));
+            medidorRafRef.current = requestAnimationFrame(medirNivel);
+          };
+          medirNivel();
+
           if (audioMusicaEl) {
             try {
               const musicSource = ctx.createMediaElementSource(audioMusicaEl);
@@ -267,6 +317,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     parar,
     volumeMic,
     volumeMusica,
+    nivelMic,
     alterarVolumeMic,
     alterarVolumeMusica,
     conectarElementoAudio,

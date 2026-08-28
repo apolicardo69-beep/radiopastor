@@ -28,6 +28,12 @@ export default function ListenerPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [name, setName] = useState('Ouvinte');
+  // Quando ativo, a próxima mensagem (texto ou áudio) vira um "pedido de
+  // louvor" em vez de bate-papo comum — é isso que faz ela aparecer na aba
+  // "Pedidos de Louvor" do painel do locutor, com o botão de marcar como
+  // atendido. Sem essa marcação não existia nenhum jeito do ouvinte gerar
+  // esse tipo de mensagem, mesmo a tela do locutor já esperando por elas.
+  const [modoPedido, setModoPedido] = useState(false);
   const [sponsorsList, setSponsorsList] = useState<Sponsor[]>([]);
   const [currentSponsorIndex, setCurrentSponsorIndex] = useState(0);
   const [sponsor, setSponsor] = useState<Sponsor | null>(null);
@@ -316,6 +322,8 @@ export default function ListenerPage() {
     const conteudo = text.trim();
     if (!conteudo) return;
     setText('');
+    const eraPedido = modoPedido;
+    setModoPedido(false);
     try {
       const { data, error } = await supabase
         .from('messages')
@@ -323,7 +331,7 @@ export default function ListenerPage() {
           author_name: getAuthorDisplay(),
           kind: 'texto',
           content: conteudo,
-          type: 'chat',
+          type: eraPedido ? 'pedido' : 'chat',
           is_guest: false,
           client_id: getClientId(),
         })
@@ -374,6 +382,13 @@ export default function ListenerPage() {
       setErroAudio('Permita o acesso ao microfone no seu navegador para gravar áudio.');
       return;
     }
+
+    // Guarda se o modo "pedido de louvor" estava ativo no momento em que a
+    // gravação começou, pra usar isso lá no onstop (que só roda quando a
+    // pessoa aperta parar, possivelmente vários segundos depois). Os botões
+    // de alternar ficam desabilitados durante a gravação (veja o JSX), então
+    // esse valor não muda no meio do caminho.
+    const eraPedidoAudio = modoPedido;
 
     pedacosRef.current = [];
     let options: MediaRecorderOptions = {};
@@ -440,7 +455,7 @@ export default function ListenerPage() {
             author_name: getAuthorDisplay(),
             kind: 'audio',
             audio_storage_path: caminho,
-            type: 'chat',
+            type: eraPedidoAudio ? 'pedido' : 'chat',
             is_guest: false,
             client_id: getClientId(),
           })
@@ -466,6 +481,7 @@ export default function ListenerPage() {
         );
       } finally {
         setEnviandoAudio(false);
+        setModoPedido(false);
       }
     };
 
@@ -824,6 +840,32 @@ export default function ListenerPage() {
               </div>
             </div>
 
+            {/* Escolha entre bate-papo comum e pedido de louvor — é essa
+                marcação que faz a mensagem aparecer na aba "Pedidos de
+                Louvor" do painel do locutor, com o botão de atendido. */}
+            <div className="flex gap-1.5 rounded-2xl bg-[#f0e6d2]/60 p-1">
+              <button
+                type="button"
+                onClick={() => setModoPedido(false)}
+                disabled={gravando || enviandoAudio}
+                className={`flex-1 rounded-xl py-1.5 text-[11px] font-bold transition active:scale-95 disabled:opacity-60 ${
+                  !modoPedido ? 'bg-white text-[#2b2118] shadow-xs' : 'text-[#7a6a52]'
+                }`}
+              >
+                💬 Bate-papo
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoPedido(true)}
+                disabled={gravando || enviandoAudio}
+                className={`flex-1 rounded-xl py-1.5 text-[11px] font-bold transition active:scale-95 disabled:opacity-60 ${
+                  modoPedido ? 'bg-[#c98a2c] text-white shadow-xs' : 'text-[#7a6a52]'
+                }`}
+              >
+                🎵 Pedido de Louvor
+              </button>
+            </div>
+
             {gravando ? (
               /* Interface Clara de Gravação em Andamento */
               <div className="flex items-center justify-between gap-2 rounded-2xl bg-[#b3261e]/10 p-2 border border-[#b3261e]/20 animate-in fade-in">
@@ -833,7 +875,7 @@ export default function ListenerPage() {
                     <span className="relative inline-flex h-3 w-3 rounded-full bg-[#b3261e]" />
                   </span>
                   <span className="text-xs font-bold text-[#b3261e]">
-                    Gravando {tempoGravacao}s
+                    Gravando {tempoGravacao}s {modoPedido ? '(pedido de louvor)' : ''}
                   </span>
                 </div>
 
@@ -865,7 +907,7 @@ export default function ListenerPage() {
                 <input
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder="Escreva uma mensagem..."
+                  placeholder={modoPedido ? 'Qual música você quer pedir?' : 'Escreva uma mensagem...'}
                   className="flex-1 rounded-2xl border border-[#d9c9a8] bg-white px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
                 />
 
