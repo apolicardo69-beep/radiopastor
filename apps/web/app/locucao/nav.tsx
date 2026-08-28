@@ -19,9 +19,9 @@ export default function LocucaoNav({ nome }: { nome: string }) {
   const supabase = createClient();
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
-  const [mostrarDicaIos, setMostrarDicaIos] = useState(false);
   const [jaInstalado, setJaInstalado] = useState(false);
   const [bannerFechado, setBannerFechado] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -58,6 +58,13 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     };
   }, []);
 
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toastMsg) return;
+    const timer = setTimeout(() => setToastMsg(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toastMsg]);
+
   async function handleInstalarApp() {
     // Tentar o prompt local ou o global
     const prompt = promptInstalacao || (typeof window !== 'undefined' && (window as any).__pwaInstallPrompt);
@@ -67,6 +74,7 @@ export default function LocucaoNav({ nome }: { nome: string }) {
         const { outcome } = await prompt.userChoice;
         if (outcome === 'accepted') {
           setJaInstalado(true);
+          setBannerFechado(true);
         }
       } catch {}
       setPromptInstalacao(null);
@@ -74,8 +82,13 @@ export default function LocucaoNav({ nome }: { nome: string }) {
         (window as any).__pwaInstallPrompt = null;
       }
     } else {
-      // Fallback: mostrar instruções manuais (iOS Safari ou navegadores sem suporte)
-      setMostrarDicaIos(true);
+      // iOS Safari ou navegadores sem suporte — toast breve
+      const isIos = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIos) {
+        setToastMsg('📱 No Safari: toque em Compartilhar ⎋ → "Adicionar à Tela de Início"');
+      } else {
+        setToastMsg('📱 Toque nos 3 pontinhos (⋮) → "Instalar aplicativo"');
+      }
     }
   }
 
@@ -86,38 +99,16 @@ export default function LocucaoNav({ nome }: { nome: string }) {
 
   return (
     <>
-      {/* Modal de Instruções de Instalação (PWA) */}
-      {mostrarDicaIos && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-sm rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl border border-[#d9c9a8]">
+      {/* Toast de dica de instalação (fallback para iOS / navegadores sem suporte) */}
+      {toastMsg && (
+        <div className="fixed top-4 left-3 right-3 z-[60] mx-auto max-w-md animate-in slide-in-from-top duration-300">
+          <div className="flex items-center justify-between gap-2 rounded-2xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30">
+            <p className="text-xs font-semibold flex-1">{toastMsg}</p>
             <button
-              onClick={() => setMostrarDicaIos(false)}
-              className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+              onClick={() => setToastMsg(null)}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white/10 text-[10px] text-white/70 hover:text-white"
             >
               ✕
-            </button>
-            <img
-              src="/icons/icon-192x192.png"
-              alt="Estúdio do Pastor"
-              className="mx-auto mb-3 h-16 w-16 rounded-2xl shadow-md border border-[#d9c9a8]"
-            />
-            <h3 className="text-base font-extrabold text-[#2b2118]">Instalar Estúdio no Celular</h3>
-            
-            <div className="mt-3 rounded-2xl bg-white p-3 text-left text-xs text-[#5c4a35] leading-relaxed shadow-xs border border-[#d9c9a8]">
-              <p className="font-bold text-[#2b2118] mb-1">📱 No Android / Chrome:</p>
-              <p>Toque nos <b>3 pontinhos (⋮)</b> no canto superior do navegador e selecione <b>&quot;Instalar aplicativo&quot;</b> ou <b>&quot;Adicionar à tela inicial&quot;</b>.</p>
-              
-              <hr className="my-2 border-[#f0e6d2]" />
-              
-              <p className="font-bold text-[#2b2118] mb-1">🍎 No iPhone / Safari:</p>
-              <p>1. Toque em <b>Compartilhar</b> <span className="text-sm">⎋</span>.<br />2. Selecione <b>&quot;Adicionar à Tela de Início&quot;</b> ➕.<br />3. Toque em <b>Adicionar</b>.</p>
-            </div>
-
-            <button
-              onClick={() => setMostrarDicaIos(false)}
-              className="mt-4 w-full rounded-2xl bg-[#2b2118] py-2.5 text-xs font-bold text-white shadow-sm hover:bg-[#1a140e] transition active:scale-95"
-            >
-              Entendi, obrigado!
             </button>
           </div>
         </div>
