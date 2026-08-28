@@ -19,6 +19,13 @@ interface PlaylistComTracks extends Playlist {
   itens: (PlaylistItem & { track?: Track })[];
 }
 
+interface OuvinteOnline {
+  client_id: string;
+  name: string;
+  whatsapp?: string;
+  online_at?: string;
+}
+
 export default function LocucaoHome() {
   const supabase = createClient();
   const {
@@ -55,6 +62,10 @@ export default function LocucaoHome() {
   const [playlists, setPlaylists] = useState<PlaylistComTracks[]>([]);
   const [erroMusica, setErroMusica] = useState<string | null>(null);
 
+  // Marcador e lista de ouvintes online
+  const [ouvintesOnline, setOuvintesOnline] = useState<OuvinteOnline[]>([]);
+  const [modalOuvintesAberto, setModalOuvintesAberto] = useState(false);
+
   async function carregarDados() {
     const { data: bData } = await supabase.from('broadcast_state').select('*').eq('id', 1).single();
     if (bData) setBroadcast(bData);
@@ -80,6 +91,22 @@ export default function LocucaoHome() {
   useEffect(() => {
     carregarDados();
 
+    // Monitorar ouvintes online em tempo real
+    const presenceChannel = supabase.channel('radio-presence-ouvintes');
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const lista: OuvinteOnline[] = [];
+        for (const key in state) {
+          const presences = state[key] as any[];
+          if (presences && presences.length > 0) {
+            lista.push(presences[0]);
+          }
+        }
+        setOuvintesOnline(lista);
+      })
+      .subscribe();
+
     const channel = supabase
       .channel('locucao-home')
       .on(
@@ -94,6 +121,7 @@ export default function LocucaoHome() {
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(presenceChannel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -141,22 +169,120 @@ export default function LocucaoHome() {
     alterarVolumeMic(novoVolume);
   }
 
+  function getWhatsappLink(phone?: string) {
+    if (!phone) return null;
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return null;
+    const fullNumber = digits.startsWith('55') ? digits : `55${digits}`;
+    return `https://wa.me/${fullNumber}?text=${encodeURIComponent('A paz do Senhor! Obrigado por estar conectado na Rádio Graça & Paz.')}`;
+  }
+
   const noAr = status === 'ao_vivo';
   const ocupado = status === 'pedindo_microfone' || status === 'conectando';
 
   return (
     <div className="flex flex-col gap-4 pb-16">
+      {/* Modal Lista de Ouvintes Conectados Ao Vivo */}
+      {modalOuvintesAberto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-md rounded-3xl bg-[#f7f1e6] p-5 shadow-2xl border border-[#d9c9a8] max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-[#d9c9a8] pb-3 mb-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-[#2b2118] flex items-center gap-1.5">
+                  <span>👥</span> Ouvintes Conectados Ao Vivo ({ouvintesOnline.length})
+                </h3>
+                <p className="text-[11px] text-[#7a6a52]">
+                  Pessoas que estão com a rádio aberta agora
+                </p>
+              </div>
+              <button
+                onClick={() => setModalOuvintesAberto(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 flex flex-col gap-2 pr-1">
+              {ouvintesOnline.map((ouvinte, idx) => {
+                const waLink = getWhatsappLink(ouvinte.whatsapp);
+                return (
+                  <div
+                    key={ouvinte.client_id || idx}
+                    className="flex items-center justify-between gap-2.5 rounded-2xl bg-white p-3 shadow-xs border border-[#d9c9a8]/50"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#2f6b4f]/10 text-sm font-bold text-[#2f6b4f]">
+                        🎧
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-bold text-[#2b2118]">
+                          {ouvinte.name || 'Ouvinte Anônimo'}
+                        </p>
+                        <p className="truncate text-[11px] text-[#7a6a52]">
+                          {ouvinte.whatsapp ? `📱 ${ouvinte.whatsapp}` : 'Sem WhatsApp informado'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {waLink && (
+                      <a
+                        href={waLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 rounded-xl bg-[#25D366] px-3 py-1.5 text-[11px] font-bold text-white shadow-xs hover:bg-[#1ebd5a] transition active:scale-95 flex items-center gap-1"
+                      >
+                        <span>💬</span>
+                        <span>WhatsApp</span>
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+
+              {ouvintesOnline.length === 0 && (
+                <p className="py-8 text-center text-xs text-[#a0937a]">
+                  Nenhum ouvinte conectado no momento.
+                </p>
+              )}
+            </div>
+
+            <button
+              onClick={() => setModalOuvintesAberto(false)}
+              className="mt-3 w-full rounded-2xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm hover:bg-[#1a140e] transition active:scale-95"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Cartão Principal do Microfone / Ao Vivo */}
       <section className="rounded-3xl bg-white p-6 text-center shadow-sm border border-[#d9c9a8]/40">
-        <div className="mb-4 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider bg-[#f0e6d2]">
-          <span
-            className={`h-2.5 w-2.5 rounded-full ${
-              noAr ? 'animate-ping bg-[#b3261e]' : 'bg-[#7a6a52]'
-            }`}
-          />
-          <span className={noAr ? 'text-[#b3261e]' : 'text-[#7a6a52]'}>
-            {TEXTO_STATUS[status]}
-          </span>
+        <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
+          <div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider bg-[#f0e6d2]">
+            <span
+              className={`h-2.5 w-2.5 rounded-full ${
+                noAr ? 'animate-ping bg-[#b3261e]' : 'bg-[#7a6a52]'
+              }`}
+            />
+            <span className={noAr ? 'text-[#b3261e]' : 'text-[#7a6a52]'}>
+              {TEXTO_STATUS[status]}
+            </span>
+          </div>
+
+          {/* Marcador Ao Vivo de Ouvintes Conectados */}
+          <button
+            onClick={() => setModalOuvintesAberto(true)}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-[#eaf3ec] text-[#2f6b4f] hover:bg-[#d8edd9] transition active:scale-95 shadow-xs border border-[#2f6b4f]/20 cursor-pointer"
+            title="Clique para ver quem está ouvindo"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2f6b4f] opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-[#2f6b4f]" />
+            </span>
+            <span>👥 {ouvintesOnline.length} {ouvintesOnline.length === 1 ? 'Ouvinte Online' : 'Ouvintes Online'}</span>
+          </button>
         </div>
 
         {/* Botão Gigante de Transmissão */}

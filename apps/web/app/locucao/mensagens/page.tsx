@@ -8,7 +8,6 @@ import type { Message } from '@/lib/types';
 export default function MensagensPage() {
   const supabase = createClient();
   const [mensagens, setMensagens] = useState<Message[]>([]);
-  const [urlsAudio, setUrlsAudio] = useState<Record<string, string>>({});
   const [filtro, setFiltro] = useState<'todas' | 'pedidos'>('todas');
 
   useEffect(() => {
@@ -48,6 +47,18 @@ export default function MensagensPage() {
     return data.publicUrl;
   }
 
+  function extrairWhatsapp(texto: string): string | null {
+    if (!texto) return null;
+    const match =
+      texto.match(/📱\s*([0-9\s()+-]+)/) ||
+      texto.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?(?:9\d{4}[-\s]?\d{4}|\d{4}[-\s]?\d{4})\b/);
+    if (!match) return null;
+    const digits = match[0].replace(/\D/g, '');
+    if (digits.length < 8) return null;
+    const fullNumber = digits.startsWith('55') ? digits : `55${digits}`;
+    return `https://wa.me/${fullNumber}?text=${encodeURIComponent('A paz do Senhor! Recebi sua mensagem na Rádio Graça & Paz.')}`;
+  }
+
   async function marcarAtendido(m: Message) {
     await supabase.from('messages').update({ fulfilled: !m.fulfilled }).eq('id', m.id);
   }
@@ -81,55 +92,73 @@ export default function MensagensPage() {
       </div>
 
       <ul className="flex flex-col gap-2.5">
-        {visiveis.map((m) => (
-          <li key={m.id} className="rounded-3xl bg-white p-4 shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold text-[#2b2118]">{m.author_name}</span>
-                {m.is_guest && (
-                  <span className="rounded-md bg-[#8a6d3b] px-1.5 py-0.5 text-[9px] font-bold text-white">
-                    CONVIDADO
-                  </span>
-                )}
-                {m.type === 'pedido' && (
-                  <span className="rounded-md bg-[#c98a2c] px-1.5 py-0.5 text-[9px] font-bold text-white">
-                    PEDIDO
-                  </span>
-                )}
-              </div>
-              <span className="text-[10px] text-[#a0937a]">
-                {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
+        {visiveis.map((m) => {
+          const waLink = extrairWhatsapp(`${m.author_name} ${m.content}`);
+          return (
+            <li key={m.id} className="rounded-3xl bg-white p-4 shadow-sm border border-[#d9c9a8]/40">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  <span className="text-xs font-bold text-[#2b2118]">{m.author_name}</span>
+                  {m.is_guest && (
+                    <span className="rounded-md bg-[#8a6d3b] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                      CONVIDADO
+                    </span>
+                  )}
+                  {m.type === 'pedido' && (
+                    <span className="rounded-md bg-[#c98a2c] px-1.5 py-0.5 text-[9px] font-bold text-white">
+                      PEDIDO
+                    </span>
+                  )}
+                </div>
 
-            {m.kind === 'audio' ? (
-              <div className="mt-1 flex flex-col gap-1 rounded-2xl bg-[#f7f1e6] p-2.5">
-                <span className="text-[11px] font-semibold text-[#7a6a52]">🎙️ Áudio do ouvinte:</span>
-                <audio
-                  controls
-                  preload="metadata"
-                  src={getAudioUrl(m.audio_storage_path)}
-                  className="h-9 w-full"
-                />
+                <div className="flex items-center gap-2 shrink-0">
+                  {waLink && (
+                    <a
+                      href={waLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-xl bg-[#25D366] px-2.5 py-1 text-[10px] font-bold text-white shadow-xs hover:bg-[#1ebd5a] transition active:scale-95 flex items-center gap-1"
+                    >
+                      <span>💬</span>
+                      <span>WhatsApp</span>
+                    </a>
+                  )}
+                  <span className="text-[10px] text-[#a0937a]">
+                    {new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
               </div>
-            ) : (
-              <p className="text-xs leading-relaxed text-[#2b2118]">{m.content}</p>
-            )}
 
-            {m.type === 'pedido' && (
-              <button
-                onClick={() => marcarAtendido(m)}
-                className={`mt-2.5 flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
-                  m.fulfilled
-                    ? 'bg-[#eaf3ec] text-[#2f6b4f]'
-                    : 'bg-[#f0e6d2] text-[#5c4a35] hover:bg-[#e4d6be]'
-                }`}
-              >
-                {m.fulfilled ? '✓ Pedido Atendido' : 'Marcar como Atendido'}
-              </button>
-            )}
-          </li>
-        ))}
+              {m.kind === 'audio' ? (
+                <div className="mt-1 flex flex-col gap-1 rounded-2xl bg-[#f7f1e6] p-2.5">
+                  <span className="text-[11px] font-semibold text-[#7a6a52]">🎙️ Áudio do ouvinte:</span>
+                  <audio
+                    controls
+                    preload="metadata"
+                    src={getAudioUrl(m.audio_storage_path)}
+                    className="h-9 w-full"
+                  />
+                </div>
+              ) : (
+                <p className="text-xs leading-relaxed text-[#2b2118]">{m.content}</p>
+              )}
+
+              {m.type === 'pedido' && (
+                <button
+                  onClick={() => marcarAtendido(m)}
+                  className={`mt-2.5 flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                    m.fulfilled
+                      ? 'bg-[#eaf3ec] text-[#2f6b4f]'
+                      : 'bg-[#f0e6d2] text-[#5c4a35] hover:bg-[#e4d6be]'
+                  }`}
+                >
+                  {m.fulfilled ? '✓ Pedido Atendido' : 'Marcar como Atendido'}
+                </button>
+              )}
+            </li>
+          );
+        })}
+
         {visiveis.length === 0 && (
           <p className="py-12 text-center text-xs text-[#a0937a]">
             Nenhuma mensagem recebida ainda.
@@ -139,4 +168,3 @@ export default function MensagensPage() {
     </div>
   );
 }
-

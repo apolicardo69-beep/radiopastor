@@ -36,6 +36,10 @@ export default function ListenerPage() {
   const [erroAudio, setErroAudio] = useState<string | null>(null);
   const [urlsAudio, setUrlsAudio] = useState<Record<string, string>>({});
   
+  // Identificação do ouvinte
+  const [whatsapp, setWhatsapp] = useState('');
+  const presenceChannelRef = useRef<any>(null);
+
   // Estados para PWA
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
   const [jaInstalado, setJaInstalado] = useState(false);
@@ -48,9 +52,28 @@ export default function ListenerPage() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Carregar nome salvo no localStorage
-    const savedName = localStorage.getItem('graca_paz_user_name');
+    // Carregar nome e WhatsApp salvos no localStorage
+    const savedName = localStorage.getItem('graca_paz_user_name') || '';
+    const savedWhatsapp = localStorage.getItem('graca_paz_user_whatsapp') || '';
     if (savedName) setName(savedName);
+    if (savedWhatsapp) setWhatsapp(savedWhatsapp);
+
+    // Canal de Presença de Ouvintes ao Vivo
+    const presenceChannel = supabase.channel('radio-presence-ouvintes', {
+      config: { presence: { key: getClientId() } },
+    });
+    presenceChannelRef.current = presenceChannel;
+
+    presenceChannel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track({
+          client_id: getClientId(),
+          name: savedName.trim() || 'Ouvinte',
+          whatsapp: savedWhatsapp.trim(),
+          online_at: new Date().toISOString(),
+        });
+      }
+    });
 
     // Verificar se já está rodando como app instalado
     if (typeof window !== 'undefined') {
@@ -94,12 +117,6 @@ export default function ListenerPage() {
         setPromptInstalacao(e);
       };
       window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-      return () => {
-        window.removeEventListener('appinstalled', handleAppInstalled);
-        window.removeEventListener('pwa-install-ready', handlePwaReady);
-        window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      };
     }
 
     async function carregarSponsors() {
@@ -177,6 +194,9 @@ export default function ListenerPage() {
 
     return () => {
       supabase.removeChannel(channel);
+      if (presenceChannelRef.current) {
+        supabase.removeChannel(presenceChannelRef.current);
+      }
       clearInterval(sponsorInterval);
       if (timerGravacaoRef.current) clearInterval(timerGravacaoRef.current);
     };
@@ -189,9 +209,41 @@ export default function ListenerPage() {
     }
   }
 
+  function getAuthorDisplay(): string {
+    const n = name.trim() || 'Ouvinte';
+    const w = whatsapp.trim();
+    if (w) return `${n} 📱 ${w}`;
+    return n;
+  }
+
   function handleNameChange(novoNome: string) {
     setName(novoNome);
-    localStorage.setItem('graca_paz_user_name', novoNome);
+    try {
+      localStorage.setItem('graca_paz_user_name', novoNome);
+    } catch {}
+    if (presenceChannelRef.current) {
+      presenceChannelRef.current.track({
+        client_id: getClientId(),
+        name: novoNome.trim() || 'Ouvinte',
+        whatsapp: whatsapp.trim(),
+        online_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  function handleWhatsappChange(novoWhatsapp: string) {
+    setWhatsapp(novoWhatsapp);
+    try {
+      localStorage.setItem('graca_paz_user_whatsapp', novoWhatsapp);
+    } catch {}
+    if (presenceChannelRef.current) {
+      presenceChannelRef.current.track({
+        client_id: getClientId(),
+        name: name.trim() || 'Ouvinte',
+        whatsapp: novoWhatsapp.trim(),
+        online_at: new Date().toISOString(),
+      });
+    }
   }
 
   function togglePlay() {
@@ -231,7 +283,7 @@ export default function ListenerPage() {
     setText('');
     try {
       await supabase.from('messages').insert({
-        author_name: name.trim() || 'Ouvinte',
+        author_name: getAuthorDisplay(),
         kind: 'texto',
         content: conteudo,
         type: 'chat',
@@ -333,7 +385,7 @@ export default function ListenerPage() {
         }
         console.log('[AUDIO] Upload OK, inserindo mensagem...');
         const { error: erroInsert } = await supabase.from('messages').insert({
-          author_name: name.trim() || 'Ouvinte',
+          author_name: getAuthorDisplay(),
           kind: 'audio',
           audio_storage_path: caminho,
           type: 'chat',
@@ -687,14 +739,26 @@ export default function ListenerPage() {
 
           {/* Barra de Gravação Ativa ou Formulário de Envio */}
           <div className="mt-3 flex flex-col gap-2 border-t border-[#f0e6d2] pt-2">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold text-[#7a6a52]">Seu nome:</span>
-              <input
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="Seu nome"
-                className="flex-1 rounded-xl border border-[#d9c9a8] bg-[#f7f1e6]/40 px-2.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none"
-              />
+            {/* Identificação do Ouvinte (Nome e WhatsApp) */}
+            <div className="rounded-2xl bg-[#f7f1e6]/60 p-2.5 border border-[#d9c9a8]/50">
+              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7a6a52] flex items-center gap-1">
+                <span>👤</span> Sua Identificação (para o Pastor / Locutor)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                <input
+                  value={name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Seu nome (ex: Maria)"
+                  className="rounded-xl border border-[#d9c9a8] bg-white px-2.5 py-1.5 text-xs font-semibold focus:border-[#2b2118] focus:outline-none"
+                />
+                <input
+                  value={whatsapp}
+                  onChange={(e) => handleWhatsappChange(e.target.value)}
+                  placeholder="Seu WhatsApp (ex: 11 99999-9999)"
+                  type="tel"
+                  className="rounded-xl border border-[#d9c9a8] bg-white px-2.5 py-1.5 text-xs font-semibold focus:border-[#2b2118] focus:outline-none"
+                />
+              </div>
             </div>
 
             {gravando ? (
