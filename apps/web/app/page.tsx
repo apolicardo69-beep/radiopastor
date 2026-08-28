@@ -127,20 +127,27 @@ export default function ListenerPage() {
       }
     }
 
-    (async () => {
-      const { data: bs } = await supabase.from('broadcast_state').select('*').eq('id', 1).single();
-      if (bs) setBroadcast(bs);
+    async function carregarMensagens() {
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
         .order('created_at', { ascending: true })
-        .limit(50);
+        .limit(100);
       if (msgs) {
         setMessages(msgs);
         setTimeout(scrollChatToEnd, 100);
       }
+    }
+
+    (async () => {
+      const { data: bs } = await supabase.from('broadcast_state').select('*').eq('id', 1).single();
+      if (bs) setBroadcast(bs);
+      await carregarMensagens();
       await carregarSponsors();
     })();
+
+    // Polling de backup a cada 5 segundos para garantir atualização mesmo em modo economia de bateria
+    const pollInterval = setInterval(carregarMensagens, 5000);
 
     // Rotacionar patrocinadores a cada 10 segundos
     const sponsorInterval = setInterval(() => {
@@ -153,7 +160,7 @@ export default function ListenerPage() {
     }, 10000);
 
     const channel = supabase
-      .channel('publico')
+      .channel('chat-publico-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'broadcast_state' },
@@ -181,8 +188,22 @@ export default function ListenerPage() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          setMessages((atual) => [...atual, payload.new as Message]);
+          const novaMsg = payload.new as Message;
+          setMessages((atual) => {
+            if (atual.some((m) => m.id === novaMsg.id)) return atual;
+            return [...atual, novaMsg];
+          });
           setTimeout(scrollChatToEnd, 100);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'messages' },
+        (payload) => {
+          const atualizada = payload.new as Message;
+          setMessages((atual) =>
+            atual.map((m) => (m.id === atualizada.id ? atualizada : m))
+          );
         }
       )
       .on(
@@ -197,6 +218,7 @@ export default function ListenerPage() {
       if (presenceChannelRef.current) {
         supabase.removeChannel(presenceChannelRef.current);
       }
+      clearInterval(pollInterval);
       clearInterval(sponsorInterval);
       if (timerGravacaoRef.current) clearInterval(timerGravacaoRef.current);
     };
@@ -282,14 +304,29 @@ export default function ListenerPage() {
     if (!conteudo) return;
     setText('');
     try {
-      await supabase.from('messages').insert({
-        author_name: getAuthorDisplay(),
-        kind: 'texto',
-        content: conteudo,
-        type: 'chat',
-        is_guest: false,
-        client_id: getClientId(),
-      });
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          author_name: getAuthorDisplay(),
+          kind: 'texto',
+          content: conteudo,
+          type: 'chat',
+          is_guest: false,
+          client_id: getClientId(),
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Erro ao inserir mensagem:', error);
+      }
+      if (data) {
+        setMessages((atual) => {
+          if (atual.some((m) => m.id === data.id)) return atual;
+          return [...atual, data as Message];
+        });
+        setTimeout(scrollChatToEnd, 100);
+      }
     } catch (err) {
       console.error('Erro ao enviar mensagem:', err);
     }
@@ -384,17 +421,29 @@ export default function ListenerPage() {
           throw new Error(erroUpload.message);
         }
         console.log('[AUDIO] Upload OK, inserindo mensagem...');
-        const { error: erroInsert } = await supabase.from('messages').insert({
-          author_name: getAuthorDisplay(),
-          kind: 'audio',
-          audio_storage_path: caminho,
-          type: 'chat',
-          is_guest: false,
-          client_id: getClientId(),
-        });
+        const { data: insertedMsg, error: erroInsert } = await supabase
+          .from('messages')
+          .insert({
+            author_name: getAuthorDisplay(),
+            kind: 'audio',
+            audio_storage_path: caminho,
+            type: 'chat',
+            is_guest: false,
+            client_id: getClientId(),
+          })
+          .select()
+          .single();
+
         if (erroInsert) {
           console.error('[AUDIO] Erro insert:', erroInsert);
           throw new Error(erroInsert.message);
+        }
+        if (insertedMsg) {
+          setMessages((atual) => {
+            if (atual.some((m) => m.id === insertedMsg.id)) return atual;
+            return [...atual, insertedMsg as Message];
+          });
+          setTimeout(scrollChatToEnd, 100);
         }
         console.log('[AUDIO] ✅ Mensagem de áudio enviada com sucesso!');
       } catch (err: unknown) {
