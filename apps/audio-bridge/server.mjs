@@ -24,6 +24,9 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 
+// O @supabase/supabase-js mais recente espera um WebSocket global (padrão em
+// navegadores) mesmo quando só usamos os métodos de auth/REST, que não
+// precisam dele — sem isso ele falha ao importar em runtimes Node puros.
 if (!globalThis.WebSocket) {
   globalThis.WebSocket = WebSocket;
 }
@@ -254,6 +257,10 @@ function feed(participant, chunk) {
 // ---------------------------------------------------------
 // HTTP & WebSocket Server
 // ---------------------------------------------------------
+// Um servidor HTTP simples embaixo do WebSocket só pra responder ao health
+// check do Railway (que bate na porta com uma requisição HTTP comum antes
+// de considerar o serviço "no ar") — o WebSocket em si continua sendo o
+// único jeito de mandar áudio de verdade.
 const server = http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end('audio-bridge OK');

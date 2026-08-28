@@ -13,7 +13,10 @@ depende de dados da anterior):
 
 1. No painel do seu projeto, abra **SQL Editor → New query**, cole o
    conteúdo de `supabase/migrations/0001_init.sql` e rode. Repita com
-   `supabase/migrations/0002_storage.sql`.
+   `supabase/migrations/0002_storage.sql` e depois
+   `supabase/migrations/0003_playlists.sql` (essa última cria as tabelas de
+   playlists personalizadas usadas no Estúdio — é segura de rodar mesmo se
+   você já tiver criado essas tabelas manualmente antes).
 2. (Opcional, só pra testar com dados de exemplo) rode também
    `supabase/seed/seed.sql`.
 3. Crie o login do pastor: **Authentication → Users → Add user**, preencha
@@ -98,13 +101,39 @@ Rodam juntos no mesmo serviço (ver o porquê no comentário do
      (passo 4 — repare no `wss://`, não `https://`).
 4. Deploy.
 
-## 6. Testando tudo junto
+## 6. Instalando os dois apps no celular
 
-1. Abra o site publicado → deve tocar a playlist (se você rodou o seed, ou
-   depois de adicionar uma música em `/locucao/musicas`).
-2. Entre em `/entrar` com o login do pastor, vá em `/locucao` e aperte
-   **"Ir ao ar"** — autorize o microfone no navegador do celular. O site
-   principal deve mostrar "AO VIVO" em poucos segundos.
+São dois ícones separados, mesmo sendo o mesmo site — o do ouvinte e o da
+locução usam links diferentes de propósito, cada um com seu próprio nome,
+ícone e cor de destaque.
+
+**App do ouvinte** (qualquer pessoa pode instalar):
+1. Abra `https://SEU-DOMINIO/` no navegador do celular.
+2. Android (Chrome): toque nos três pontinhos → **"Instalar app"** (ou
+   **"Adicionar à tela inicial"**).
+   iPhone (Safari): toque no ícone de compartilhar → **"Adicionar à Tela de
+   Início"**.
+3. Aparece um ícone chamado **"Graça & Paz"**.
+
+**App da locução** (só pastor/moderador — o login pede senha mesmo depois
+de instalado):
+1. No celular do pastor, abra `https://SEU-DOMINIO/locucao/entrar`.
+2. Repita o mesmo passo de instalar/adicionar à tela de início.
+3. Aparece um SEGUNDO ícone, diferente do primeiro, chamado **"Locução"**
+   (vermelho). Esse é o que o pastor usa no dia a dia — abre direto na tela
+   de login (ou já na tela de "Ir ao ar", se a sessão ainda estiver ativa).
+
+Instalar os dois no mesmo celular não causa conflito nenhum — o navegador
+trata como dois apps completamente separados.
+
+## 7. Testando tudo junto
+
+1. Abra o site publicado (ou o app do ouvinte instalado) → deve tocar a
+   playlist (se você rodou o seed, ou depois de adicionar uma música em
+   `/locucao/musicas`).
+2. Entre em `/locucao/entrar` com o login do pastor, vá em `/locucao` e
+   aperte **"Ir ao ar"** — autorize o microfone no navegador do celular. O
+   site principal deve mostrar "AO VIVO" em poucos segundos.
 3. Mande uma mensagem de texto e uma de áudio no chat do site principal.
 4. Cadastre um patrocinador em `/locucao/patrocinadores` e confirme que a
    arte aparece na tela do ouvinte entre as músicas.

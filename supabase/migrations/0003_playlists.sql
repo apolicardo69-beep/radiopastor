@@ -1,39 +1,57 @@
 -- =========================================================
--- Playlists do locutor
--- Rode no SQL Editor do Supabase (Dashboard → SQL Editor)
+-- Playlists personalizadas (Estúdio → Músicas)
+-- Rode depois do 0001_init.sql e 0002_storage.sql.
+--
+-- As 6 vinhetas da "cartucheira" (Estúdio → botões de disparo) NÃO têm
+-- tabela própria: ficam salvas no localStorage do navegador do próprio
+-- pastor (arquivo/link + nome de cada botão). Isso significa que a
+-- configuração dos botões é por aparelho — se o pastor usar o app em mais
+-- de um celular, cada um guarda sua própria configuração das vinhetas. Se
+-- no futuro fizer sentido sincronizar isso entre aparelhos, dá pra criar
+-- uma tabela `jingle_slots` seguindo o mesmo padrão desta migration.
 -- =========================================================
 
--- Playlists nomeadas
-CREATE TABLE IF NOT EXISTS playlists (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  created_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
+create table if not exists playlists (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  created_by uuid references profiles(id) on delete set null,
+  created_at timestamptz not null default now()
 );
 
--- Músicas dentro de cada playlist (relação N:M com tracks)
-CREATE TABLE IF NOT EXISTS playlist_items (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  playlist_id uuid NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-  track_id uuid NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-  position int NOT NULL DEFAULT 0,
-  created_at timestamptz NOT NULL DEFAULT now()
+alter table playlists enable row level security;
+create policy "playlists_staff_select" on playlists for select using (is_staff());
+create policy "playlists_staff_write" on playlists for insert with check (is_staff());
+create policy "playlists_staff_update" on playlists for update using (is_staff());
+create policy "playlists_staff_delete" on playlists for delete using (is_staff());
+
+create table if not exists playlist_items (
+  id uuid primary key default gen_random_uuid(),
+  playlist_id uuid not null references playlists(id) on delete cascade,
+  track_id uuid not null references tracks(id) on delete cascade,
+  position int not null default 0,
+  created_at timestamptz not null default now()
 );
 
-CREATE INDEX IF NOT EXISTS playlist_items_playlist_idx ON playlist_items (playlist_id, position);
+create index if not exists playlist_items_playlist_id_idx on playlist_items (playlist_id, position);
 
--- RLS
-ALTER TABLE playlists ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "playlists_staff_select" ON playlists FOR SELECT USING (is_staff());
-CREATE POLICY "playlists_staff_insert" ON playlists FOR INSERT WITH CHECK (is_staff());
-CREATE POLICY "playlists_staff_update" ON playlists FOR UPDATE USING (is_staff());
-CREATE POLICY "playlists_staff_delete" ON playlists FOR DELETE USING (is_staff());
+alter table playlist_items enable row level security;
+create policy "playlist_items_staff_select" on playlist_items for select using (is_staff());
+create policy "playlist_items_staff_write" on playlist_items for insert with check (is_staff());
+create policy "playlist_items_staff_update" on playlist_items for update using (is_staff());
+create policy "playlist_items_staff_delete" on playlist_items for delete using (is_staff());
 
-ALTER TABLE playlist_items ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "playlist_items_staff_select" ON playlist_items FOR SELECT USING (is_staff());
-CREATE POLICY "playlist_items_staff_insert" ON playlist_items FOR INSERT WITH CHECK (is_staff());
-CREATE POLICY "playlist_items_staff_delete" ON playlist_items FOR DELETE USING (is_staff());
-
--- Realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE playlists;
-ALTER PUBLICATION supabase_realtime ADD TABLE playlist_items;
+-- "if not exists" nas tabelas acima já cobre o caso de você ter criado
+-- essas tabelas manualmente antes de rodar esta migration; o bloco abaixo
+-- faz o mesmo pras duas linhas de "alter publication", que dão erro se a
+-- tabela já estiver na publicação (em vez de simplesmente ignorar).
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table playlists;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table playlist_items;
+  exception when duplicate_object then null;
+  end;
+end $$;

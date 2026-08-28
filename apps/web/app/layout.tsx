@@ -1,10 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import SwRegisterOuvinte from "./sw-register";
 
+// Este manifest/ícone é o do app do OUVINTE. A área da locução
+// (app/locucao/layout.tsx) declara o seu próprio, diferente — os dois
+// viram apps instaláveis separados, cada um com seu ícone e nome na tela
+// do celular, mesmo estando no mesmo site.
 export const metadata: Metadata = {
   title: "Rádio Graça & Paz",
   description: "Rádio web da igreja — 24h na Palavra, louvores e bate-papo com os ouvintes.",
-  manifest: "/manifest.json",
+  manifest: "/manifest-ouvinte.webmanifest",
   icons: {
     icon: "/icons/icon-192x192.png",
     apple: "/icons/apple-touch-icon.png",
@@ -30,18 +35,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" className="h-full antialiased selection:bg-[#2b2118] selection:text-[#f7f1e6]">
-      <head>
-        <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-      </head>
       <body className="min-h-full flex flex-col bg-[#f7f1e6] text-[#2b2118]">
+        <SwRegisterOuvinte />
         {children}
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              // Captura global do evento de instalação PWA antes de qualquer React montar
+              // Captura global do evento de instalação PWA antes de qualquer React montar.
+              // Funciona igual nas duas áreas (ouvinte e locução): o navegador dispara este
+              // evento com base no manifest/service worker da página em que a pessoa está,
+              // então o botão "Instalar App" sempre oferece o app certo pro contexto certo.
               window.__pwaInstallPrompt = null;
               window.addEventListener('beforeinstallprompt', function(e) {
                 e.preventDefault();
@@ -49,16 +52,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 // Dispara um evento customizado para componentes React que já montaram
                 window.dispatchEvent(new Event('pwa-install-ready'));
               });
-
-              if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(function(reg) {
-                    reg.update();
-                  }).catch(function(err) {
-                    console.log('ServiceWorker registration failed: ', err);
-                  });
-                });
-              }
             `,
           }}
         />
@@ -66,4 +59,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-

@@ -1,36 +1,41 @@
-// Guarda de acesso da área de locução: roda no servidor, então mesmo que
-// alguém desative o JS ou chegue direto numa URL, sem sessão de
-// pastor/moderador válida ele nunca chega a ver o conteúdo desta área.
-import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
-import LocucaoNav from './nav';
-import { PlayerProvider } from '@/lib/PlayerContext';
+// Layout de topo de /locucao — de propósito bem simples, sem checar login
+// (isso é feito só dentro do grupo (protegido), que envolve as páginas de
+// verdade da locução mas NÃO a de login em /locucao/entrar — senão a
+// própria tela de login ficaria presa num redirecionamento infinito pra
+// ela mesma).
+//
+// O que este arquivo faz de importante: define o manifest/ícone/nome
+// PRÓPRIOS da locução (diferentes dos do ouvinte — ver app/layout.tsx e
+// app/page.tsx), pra virar um app instalável separado de verdade, e
+// registra o service worker da locução em toda página sob /locucao,
+// incluindo a de login.
+import type { Metadata, Viewport } from 'next';
+import SwRegisterLocucao from './sw-register';
 
-export default async function LocucaoLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const metadata: Metadata = {
+  title: 'Locução — Graça & Paz',
+  description: 'Painel do pastor e da equipe da Rádio Graça & Paz.',
+  manifest: '/manifest-locucao.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'Locução',
+    statusBarStyle: 'default',
+  },
+  icons: {
+    icon: '/icons/icon-locucao-512.png',
+    apple: '/icons/icon-locucao-192.png',
+  },
+};
 
-  if (!user) redirect('/entrar');
+export const viewport: Viewport = {
+  themeColor: '#b3261e',
+};
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, display_name')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile || !['pastor', 'moderador'].includes(profile.role)) {
-    redirect('/entrar');
-  }
-
+export default function LocucaoSegmentLayout({ children }: { children: React.ReactNode }) {
   return (
-    <PlayerProvider>
-      <div className="min-h-screen bg-[#f7f1e6] text-[#2b2118]">
-        <LocucaoNav nome={profile.display_name} />
-        <main className="mx-auto max-w-2xl px-4 py-6">{children}</main>
-      </div>
-    </PlayerProvider>
+    <>
+      <SwRegisterLocucao />
+      {children}
+    </>
   );
 }
-

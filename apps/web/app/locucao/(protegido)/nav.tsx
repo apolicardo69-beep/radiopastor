@@ -108,7 +108,7 @@ export default function LocucaoNav({ nome }: { nome: string }) {
 
   async function sair() {
     await supabase.auth.signOut();
-    router.push('/entrar');
+    router.push('/locucao/entrar');
   }
 
   return (
