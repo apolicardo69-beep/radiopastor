@@ -120,10 +120,19 @@ export default function ListenerPage() {
     }
 
     async function carregarSponsors() {
-      const { data: sponsors } = await supabase.from('sponsors').select('*').eq('active', true);
-      if (sponsors && sponsors.length > 0) {
-        setSponsorsList(sponsors);
-        sponsorsRef.current = sponsors;
+      try {
+        const { data: sponsors } = await supabase
+          .from('sponsors')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (sponsors) {
+          const ativos = sponsors.filter((s) => s.active !== false);
+          setSponsorsList(ativos);
+          sponsorsRef.current = ativos;
+        }
+      } catch (err) {
+        console.error('[SPONSORS] Erro:', err);
       }
     }
 
@@ -146,10 +155,13 @@ export default function ListenerPage() {
       await carregarSponsors();
     })();
 
-    // Polling de backup a cada 5 segundos para garantir atualização mesmo em modo economia de bateria
-    const pollInterval = setInterval(carregarMensagens, 5000);
+    // Polling de backup a cada 5 segundos para garantir atualização de mensagens e patrocinadores
+    const pollInterval = setInterval(() => {
+      carregarMensagens();
+      carregarSponsors();
+    }, 5000);
 
-    // Rotacionar patrocinadores a cada 10 segundos
+    // Rotacionar patrocinadores a cada 6 segundos
     const sponsorInterval = setInterval(() => {
       setSponsorsList((list) => {
         if (list.length > 1) {
@@ -157,7 +169,7 @@ export default function ListenerPage() {
         }
         return list;
       });
-    }, 10000);
+    }, 6000);
 
     const channel = supabase
       .channel('chat-publico-realtime')
