@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { BroadcastState, Message, Sponsor } from '@/lib/types';
+import SwRegisterOuvinte from './sw-register';
 
 const STREAM_URL = process.env.NEXT_PUBLIC_ICECAST_STREAM_URL || 'http://localhost:8000/radio';
 
@@ -527,6 +528,7 @@ export default function ListenerPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f7f1e6] text-[#2b2118] pb-24">
+      <SwRegisterOuvinte />
       <audio
         ref={audioRef}
         onWaiting={() => setCarregandoAudio(true)}
