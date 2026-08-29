@@ -9,6 +9,164 @@ import MensagemDoDia from '@/components/MensagemDoDia';
 
 const STREAM_URL = process.env.NEXT_PUBLIC_ICECAST_STREAM_URL || 'http://localhost:8000/radio';
 
+// ---------------------------------------------------------------------------
+// Helpers dos anúncios
+// ---------------------------------------------------------------------------
+
+// Monta o link que abre a conversa no WhatsApp do anunciante já com uma
+// mensagem pronta — assim o ouvinte não precisa pensar no que escrever, e o
+// anunciante sabe na hora que o contato veio da rádio.
+function getSponsorWhatsappLink(sponsor: Sponsor): string | null {
+  const digitos = (sponsor.whatsapp || '').replace(/\D/g, '');
+  if (!digitos) return null;
+  const numero = digitos.startsWith('55') ? digitos : `55${digitos}`;
+  const texto = encodeURIComponent(
+    `Olá! Vi o anúncio de vocês na Rádio Graça & Paz e gostaria de saber mais.`
+  );
+  return `https://wa.me/${numero}?text=${texto}`;
+}
+
+// ---------------------------------------------------------------------------
+// Card fixo do patrocinador
+// ---------------------------------------------------------------------------
+// Duas aparências, escolhidas pelo que o anúncio tem cadastrado:
+//
+//  - COM arte de fundo (gerada por IA no Estúdio): card grande, com a imagem
+//    ao fundo, um véu escuro por cima pra garantir leitura, e a logo real +
+//    o texto real desenhados por cima. A arte nunca contém texto: quem
+//    escreve o nome é o app, com fonte de verdade.
+//
+//  - SEM arte: exatamente o card compacto de antes, pra que os anúncios já
+//    cadastrados continuem aparecendo igual, sem ninguém precisar refazer
+//    nada.
+//
+// Se houver WhatsApp cadastrado, o card inteiro vira um link — o alvo de
+// toque é o card todo, não um botãozinho, o que importa muito no celular.
+function CardPatrocinador({
+  sponsor,
+  indice,
+  total,
+  logoUrl,
+  arteUrl,
+}: {
+  sponsor: Sponsor;
+  indice: number;
+  total: number;
+  logoUrl: string;
+  arteUrl: string;
+}) {
+  const waLink = getSponsorWhatsappLink(sponsor);
+
+  const selo = (
+    <div className="flex items-center gap-1.5">
+      <span
+        className={`text-[9px] font-bold uppercase tracking-wider ${
+          arteUrl ? 'text-[#e8c87a]' : 'text-[#8a6d3b]'
+        }`}
+      >
+        Apoio Cultural
+      </span>
+      {total > 1 && (
+        <span className={`text-[9px] ${arteUrl ? 'text-white/60' : 'text-[#a0937a]'}`}>
+          ({indice + 1}/{total})
+        </span>
+      )}
+    </div>
+  );
+
+  const miolo = arteUrl ? (
+    // ----- Versão com arte de fundo -----
+    <div className="relative min-h-[132px] overflow-hidden rounded-2xl border border-[#d9c9a8] shadow-sm">
+      <img
+        src={arteUrl}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      {/* Véu escuro: sem ele, texto claro sobre foto clara fica ilegível.
+          Mais denso à esquerda, que é onde ficam logo e texto. */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/25" />
+
+      <div className="relative flex items-center gap-3 p-3.5">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={sponsor.name}
+            className="h-12 w-12 shrink-0 rounded-xl border border-white/30 bg-white/95 object-contain p-1 shadow-md"
+          />
+        ) : (
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-md">
+            ⭐
+          </div>
+        )}
+
+        <div className="min-w-0 flex-1">
+          {selo}
+          <h3 className="truncate text-sm font-extrabold text-white drop-shadow-sm">
+            {sponsor.name}
+          </h3>
+          {sponsor.tagline && (
+            <p className="line-clamp-2 text-[11px] leading-tight text-white/85">
+              {sponsor.tagline}
+            </p>
+          )}
+
+          {waLink && (
+            <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#25D366] px-2.5 py-1 text-[10px] font-bold text-white shadow-sm">
+              <span>💬</span>
+              <span>Falar no WhatsApp</span>
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  ) : (
+    // ----- Versão compacta (como era antes) -----
+    <div className="relative overflow-hidden rounded-2xl border border-[#d9c9a8] bg-gradient-to-r from-[#f0e6d2] via-[#f7f1e6] to-[#f0e6d2] p-3.5 shadow-xs transition duration-500">
+      <div className="flex items-center gap-3">
+        {logoUrl ? (
+          <img
+            src={logoUrl}
+            alt={sponsor.name}
+            className="h-10 w-10 shrink-0 rounded-xl object-contain bg-white/80 p-1 border border-[#d9c9a8]"
+          />
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-xs">
+            ⭐
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          {selo}
+          <h3 className="truncate text-xs font-bold text-[#2b2118]">{sponsor.name}</h3>
+          {sponsor.tagline && (
+            <p className="truncate text-[11px] text-[#5c4a35]">{sponsor.tagline}</p>
+          )}
+        </div>
+
+        {waLink && (
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-sm text-white shadow-xs">
+            💬
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
+  if (!waLink) return <section>{miolo}</section>;
+
+  return (
+    <a
+      href={waLink}
+      target="_blank"
+      rel="noreferrer"
+      className="block transition active:scale-98"
+      aria-label={`Falar no WhatsApp com ${sponsor.name}`}
+    >
+      {miolo}
+    </a>
+  );
+}
+
 function getClientId() {
   if (typeof window === 'undefined') return '';
   let id = localStorage.getItem('graca_paz_client_id');
@@ -546,6 +704,13 @@ export default function ListenerPage() {
     return data.publicUrl;
   }
 
+  // A arte de fundo vive no mesmo bucket das logos, sob o prefixo "arte-ia/".
+  function getSponsorArteUrl(storagePath?: string | null) {
+    if (!storagePath) return '';
+    const { data } = supabase.storage.from('patrocinadores').getPublicUrl(storagePath);
+    return data.publicUrl;
+  }
+
   const currentSponsor = sponsorsList[currentSponsorIndex] || sponsorsList[0];
 
   return (
@@ -565,25 +730,55 @@ export default function ListenerPage() {
       {/* Pop-up do Patrocinador (Momento Especial) */}
       {sponsor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-sm rounded-3xl bg-[#f7f1e6] p-6 text-center shadow-2xl border border-[#d9c9a8]">
+          <div className="relative w-full max-w-sm overflow-hidden rounded-3xl bg-[#f7f1e6] text-center shadow-2xl border border-[#d9c9a8]">
             <button
               onClick={() => setSponsor(null)}
-              className="absolute right-4 top-4 flex h-7 w-7 items-center justify-center rounded-full bg-[#2b2118]/10 text-xs font-bold text-[#2b2118] hover:bg-[#2b2118]/20"
+              className="absolute right-4 top-4 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/30 text-xs font-bold text-white backdrop-blur-sm hover:bg-black/50"
             >
               ✕
             </button>
-            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#8a6d3b]">
-              ⭐ Momento Patrocinado
-            </p>
-            {sponsor.logo_storage_path && (
-              <img
-                src={getSponsorLogoUrl(sponsor.logo_storage_path)}
-                alt={sponsor.name}
-                className="mx-auto mb-3 max-h-20 max-w-[180px] rounded-xl object-contain"
-              />
+
+            {/* Faixa com a arte gerada, quando o anúncio tiver uma */}
+            {sponsor.background_storage_path && (
+              <div className="relative h-32 w-full">
+                <img
+                  src={getSponsorArteUrl(sponsor.background_storage_path)}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#f7f1e6] via-[#f7f1e6]/30 to-transparent" />
+              </div>
             )}
-            <h2 className="mb-1 text-xl font-extrabold text-[#2b2118]">{sponsor.name}</h2>
-            {sponsor.tagline && <p className="text-xs font-medium text-[#5c4a35]">{sponsor.tagline}</p>}
+
+            <div className={sponsor.background_storage_path ? 'px-6 pb-6 -mt-6 relative' : 'p-6'}>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#8a6d3b]">
+                ⭐ Momento Patrocinado
+              </p>
+              {sponsor.logo_storage_path && (
+                <img
+                  src={getSponsorLogoUrl(sponsor.logo_storage_path)}
+                  alt={sponsor.name}
+                  className="mx-auto mb-3 max-h-20 max-w-[180px] rounded-xl bg-white/80 object-contain p-1 shadow-sm"
+                />
+              )}
+              <h2 className="mb-1 text-xl font-extrabold text-[#2b2118]">{sponsor.name}</h2>
+              {sponsor.tagline && (
+                <p className="text-xs font-medium text-[#5c4a35]">{sponsor.tagline}</p>
+              )}
+
+              {getSponsorWhatsappLink(sponsor) && (
+                <a
+                  href={getSponsorWhatsappLink(sponsor) as string}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-2xl bg-[#25D366] py-3 text-xs font-bold text-white shadow-md transition hover:bg-[#1ebd5a] active:scale-95"
+                >
+                  <span>💬</span>
+                  <span>Falar no WhatsApp</span>
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -775,37 +970,13 @@ export default function ListenerPage() {
 
         {/* Card Fixo de Apoio Cultural / Patrocinadores */}
         {currentSponsor && (
-          <section className="relative overflow-hidden rounded-2xl border border-[#d9c9a8] bg-gradient-to-r from-[#f0e6d2] via-[#f7f1e6] to-[#f0e6d2] p-3.5 shadow-xs transition duration-500">
-            <div className="flex items-center gap-3">
-              {currentSponsor.logo_storage_path ? (
-                <img
-                  src={getSponsorLogoUrl(currentSponsor.logo_storage_path)}
-                  alt={currentSponsor.name}
-                  className="h-10 w-10 shrink-0 rounded-xl object-contain bg-white/80 p-1 border border-[#d9c9a8]"
-                />
-              ) : (
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-xs">
-                  ⭐
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-[#8a6d3b]">
-                    Apoio Cultural
-                  </span>
-                  {sponsorsList.length > 1 && (
-                    <span className="text-[9px] text-[#a0937a]">
-                      ({currentSponsorIndex + 1}/{sponsorsList.length})
-                    </span>
-                  )}
-                </div>
-                <h3 className="truncate text-xs font-bold text-[#2b2118]">{currentSponsor.name}</h3>
-                {currentSponsor.tagline && (
-                  <p className="truncate text-[11px] text-[#5c4a35]">{currentSponsor.tagline}</p>
-                )}
-              </div>
-            </div>
-          </section>
+          <CardPatrocinador
+            sponsor={currentSponsor}
+            indice={currentSponsorIndex}
+            total={sponsorsList.length}
+            logoUrl={getSponsorLogoUrl(currentSponsor.logo_storage_path)}
+            arteUrl={getSponsorArteUrl(currentSponsor.background_storage_path)}
+          />
         )}
 
         {/* Bate-papo dos Ouvintes */}
