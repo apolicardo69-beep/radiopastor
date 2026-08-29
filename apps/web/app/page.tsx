@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { BroadcastState, Message, Sponsor } from '@/lib/types';
 import SwRegisterOuvinte from './sw-register';
+import MensagemDoDia from '@/components/MensagemDoDia';
 
 const STREAM_URL = process.env.NEXT_PUBLIC_ICECAST_STREAM_URL || 'http://localhost:8000/radio';
 
@@ -816,6 +817,9 @@ export default function ListenerPage() {
             </h2>
             <span className="text-[11px] text-[#a0937a]">{messages.length} mensagens</span>
           </div>
+
+          {/* Palavra do Pastor (Fixada no topo do bate-papo quando ativa) */}
+          <MensagemDoDia />
 
           {/* Lista de Mensagens com rolagem suave */}
           <div

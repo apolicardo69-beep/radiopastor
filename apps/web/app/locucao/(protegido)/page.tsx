@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useAudioBroadcast } from '@/lib/useAudioBroadcast';
 import { usePlayer } from '@/lib/PlayerContext';
 import type { BroadcastState, Track, Playlist, PlaylistItem, JingleSlot } from '@/lib/types';
+import MensagemDoDiaEditor from '@/components/MensagemDoDiaEditor';
 
 const TEXTO_STATUS: Record<string, string> = {
   parado: 'Fora do ar · Toca playlist 24h',
@@ -997,6 +998,9 @@ export default function LocucaoHome() {
           </ul>
         )}
       </section>
+
+      {/* Palavra do Pastor / Mensagem do Dia */}
+      <MensagemDoDiaEditor />
 
       {/* Soundboard / Músicas Avulsas no Ar */}
       <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">

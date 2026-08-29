@@ -98,4 +98,14 @@ export interface JingleSlot {
   duration_seconds?: number | null;
 }
 
+// Mensagem do dia do pastor — tabela daily_message (0005_daily_message.sql).
+// Mesmo padrão de linha única do BroadcastState: o id é sempre 1.
+export interface DailyMessage {
+  id: 1;
+  content: string | null;
+  active: boolean;
+  author_name: string | null;
+  updated_at: string;
+}
+
 
