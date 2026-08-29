@@ -13,20 +13,5 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  // Ignora requisições de áudio/streaming e API para não travar o stream ao vivo
-  const url = new URL(event.request.url);
-  if (
-    url.pathname.endsWith('/radio') ||
-    url.pathname.includes('/storage/v1') ||
-    url.pathname.includes('/rest/v1') ||
-    event.request.method !== 'GET'
-  ) {
-    return;
-  }
-
-  event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request))
-  );
-});
+self.addEventListener('fetch', () => {});
 

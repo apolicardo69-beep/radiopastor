@@ -93,38 +93,37 @@ export default function ListenerPage() {
 
       if (isStandalone) {
         setJaInstalado(true);
-        return;
-      }
+      } else {
+        // Evento nativo disparado quando o app é instalado pelo navegador
+        const handleAppInstalled = () => {
+          try {
+            localStorage.setItem('pwa_app_installed', 'true');
+          } catch {}
+          setJaInstalado(true);
+          setPromptInstalacao(null);
+        };
+        window.addEventListener('appinstalled', handleAppInstalled);
 
-      // Evento nativo disparado quando o app é instalado pelo navegador
-      const handleAppInstalled = () => {
-        try {
-          localStorage.setItem('pwa_app_installed', 'true');
-        } catch {}
-        setJaInstalado(true);
-        setPromptInstalacao(null);
-      };
-      window.addEventListener('appinstalled', handleAppInstalled);
-
-      // Ler prompt já capturado globalmente pelo layout.tsx
-      if ((window as any).__pwaInstallPrompt) {
-        setPromptInstalacao((window as any).__pwaInstallPrompt);
-      }
-
-      // Escutar evento customizado caso o prompt chegue depois
-      const handlePwaReady = () => {
+        // Ler prompt já capturado globalmente pelo layout.tsx
         if ((window as any).__pwaInstallPrompt) {
           setPromptInstalacao((window as any).__pwaInstallPrompt);
         }
-      };
-      window.addEventListener('pwa-install-ready', handlePwaReady);
 
-      // Escutar o evento nativo diretamente também
-      const handleBeforeInstallPrompt = (e: Event) => {
-        e.preventDefault();
-        setPromptInstalacao(e);
-      };
-      window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        // Escutar evento customizado caso o prompt chegue depois
+        const handlePwaReady = () => {
+          if ((window as any).__pwaInstallPrompt) {
+            setPromptInstalacao((window as any).__pwaInstallPrompt);
+          }
+        };
+        window.addEventListener('pwa-install-ready', handlePwaReady);
+
+        // Escutar o evento nativo diretamente também
+        const handleBeforeInstallPrompt = (e: Event) => {
+          e.preventDefault();
+          setPromptInstalacao(e);
+        };
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      }
     }
 
     async function carregarSponsors() {
