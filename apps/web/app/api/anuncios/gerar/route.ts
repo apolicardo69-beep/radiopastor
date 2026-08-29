@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
+export const maxDuration = 30;
+
 // Mapeamento temático inteligente de imagens HD sem texto para o fundo do anúncio
 const THEME_PHOTOS: Record<string, string> = {
   marcenaria: 'photo-1538688525198-9b88f6f53126', // madeira / móveis
@@ -10,23 +12,66 @@ const THEME_PHOTOS: Record<string, string> = {
   confeitaria: 'photo-1509440159596-0249088772ff',
   restaurante: 'photo-1517248135467-4c7edcad34c4', // gastronomia
   lanchonete: 'photo-1550547660-d9450f859349', // lanches
+  comida: 'photo-1517248135467-4c7edcad34c4',
   mecanica: 'photo-1486006920555-c77dce18193b', // automotivo / oficina
+  oficina: 'photo-1486006920555-c77dce18193b',
   carros: 'photo-1486006920555-c77dce18193b',
+  veiculos: 'photo-1486006920555-c77dce18193b',
+  auto: 'photo-1486006920555-c77dce18193b',
   dentista: 'photo-1629909613654-28e377c37b09', // odontologia / saúde
+  odonto: 'photo-1629909613654-28e377c37b09',
   saude: 'photo-1576091160399-112ba8d25d1d', // clínica
+  clinica: 'photo-1576091160399-112ba8d25d1d',
   farmacia: 'photo-1586015555751-63bb77f4322a', // drogaria
+  drogaria: 'photo-1586015555751-63bb77f4322a',
   barbearia: 'photo-1503951914875-452162b0f3f1', // barbearia / salão
+  barbeiro: 'photo-1503951914875-452162b0f3f1',
   salao: 'photo-1560066984-138dadb4c035', // beleza
+  estetica: 'photo-1560066984-138dadb4c035',
+  beleza: 'photo-1560066984-138dadb4c035',
   construcao: 'photo-1503387762-592deb58ef4e', // construção / arquitetura
   engenharia: 'photo-1503387762-592deb58ef4e',
+  arquitetura: 'photo-1503387762-592deb58ef4e',
+  reforma: 'photo-1503387762-592deb58ef4e',
+  tintas: 'photo-1503387762-592deb58ef4e',
   roupas: 'photo-1441986300917-64674bd600d8', // moda / boutique
   moda: 'photo-1441986300917-64674bd600d8',
+  calcados: 'photo-1441986300917-64674bd600d8',
+  loja: 'photo-1441986300917-64674bd600d8',
+  boutique: 'photo-1441986300917-64674bd600d8',
   tecnologia: 'photo-1518770660439-4636190af475', // tecnologia / eletrônicos
+  software: 'photo-1518770660439-4636190af475',
+  sistemas: 'photo-1518770660439-4636190af475',
+  automacao: 'photo-1518770660439-4636190af475',
+  bot: 'photo-1518770660439-4636190af475',
+  programacao: 'photo-1518770660439-4636190af475',
+  informatica: 'photo-1518770660439-4636190af475',
+  computador: 'photo-1518770660439-4636190af475',
   celular: 'photo-1511707171634-5f897ff02aa9', // celulares
+  smartphones: 'photo-1511707171634-5f897ff02aa9',
   contabilidade: 'photo-1497366216548-37526070297c', // escritório executivo
+  contador: 'photo-1497366216548-37526070297c',
   advocacia: 'photo-1589829545856-d10d557cf95f', // jurídico
+  advogado: 'photo-1589829545856-d10d557cf95f',
+  juridico: 'photo-1589829545856-d10d557cf95f',
   imobiliaria: 'photo-1560518883-ce09059eeffa', // imóveis
+  imoveis: 'photo-1560518883-ce09059eeffa',
+  corretor: 'photo-1560518883-ce09059eeffa',
+  mercado: 'photo-1534723452862-4c874018d66d', // supermercado / mercearia
+  supermercado: 'photo-1534723452862-4c874018d66d',
+  mercearia: 'photo-1534723452862-4c874018d66d',
+  hortifruti: 'photo-1534723452862-4c874018d66d',
+  acougue: 'photo-1534723452862-4c874018d66d',
+  academia: 'photo-1534438327276-14e5300c3a48', // fitness / treino
+  fitness: 'photo-1534438327276-14e5300c3a48',
+  treino: 'photo-1534438327276-14e5300c3a48',
+  esporte: 'photo-1534438327276-14e5300c3a48',
+  pet: 'photo-1587300003388-59208cc962cb', // pet shop / veterinário
+  veterinaria: 'photo-1587300003388-59208cc962cb',
   gospel: 'photo-1438232992991-995b7058bbb3', // igreja / fé
+  igreja: 'photo-1438232992991-995b7058bbb3',
+  livraria: 'photo-1524995997946-a1c2e315a42f', // livros
+  papelaria: 'photo-1524995997946-a1c2e315a42f',
   default: 'photo-1557683316-973673baf926', // gradiente dourado quente sofisticado
 };
 
@@ -163,16 +208,24 @@ Regras:
 
     // 2. Geração da Arte de Fundo com IA e Fallback Ultrarrápido HD
     let background_storage_path: string | null = null;
-    // URL direta (usada como último recurso caso o upload no Storage falhe)
-    let background_direct_url: string | null = null;
 
     if (gerarImagem) {
       try {
+        const photoId = escolherFotoTematica(ramo);
+        const fallbackUnsplashUrl = `https://images.unsplash.com/${photoId}?auto=format&fit=crop&w=800&h=450&q=80`;
+
+        // Seed inteiro seguro para a API do Pollinations (< 2 bilhões)
+        const seed = Math.floor(Math.random() * 1000000);
+        const promptImg = `clean luxury modern background for ${ramo}, warm aesthetic, minimal abstract, high quality, 4k, no text, no letters, no logos, no typography`;
+        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+          promptImg
+        )}?width=800&height=450&nologo=true&seed=${seed}`;
+
+        // Definimos de antemão a URL de IA (ou fallback) para garantir que NUNCA fique vazio
+        background_storage_path = fallbackUnsplashUrl;
+
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-
-        console.log('[API ANUNCIOS] service_role configurada:', !!serviceRoleKey);
-
         const storageClient = serviceRoleKey
           ? createSupabaseClient(supabaseUrl, serviceRoleKey)
           : supabase;
@@ -180,81 +233,59 @@ Regras:
         let imageBuffer: Buffer | null = null;
         let imageSource = 'nenhuma';
 
-        // Opção A: Tentar gerar via IA com timeout generoso (8s)
+        // Tentar baixar Pollinations com timeout de 5 segundos
         try {
-          const promptImg = `clean elegant background texture for ${ramo}, warm aesthetic, minimal abstract, high quality, 4k, no text, no letters, no logos, no typography`;
-          const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-            promptImg
-          )}?width=800&height=450&nologo=true&seed=${Date.now()}`;
-
-          console.log('[API ANUNCIOS] Tentando Pollinations...');
-          const aiRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(8000) });
+          console.log('[API ANUNCIOS] Tentando Pollinations com seed:', seed);
+          const aiRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(5000) });
           if (aiRes.ok) {
             const arr = await aiRes.arrayBuffer();
-            console.log('[API ANUNCIOS] Pollinations respondeu, tamanho:', arr.byteLength);
             if (arr.byteLength > 1000) {
               imageBuffer = Buffer.from(arr);
               imageSource = 'pollinations';
+              background_storage_path = pollinationsUrl;
             }
-          } else {
-            console.warn('[API ANUNCIOS] Pollinations retornou status:', aiRes.status);
           }
         } catch (polErr) {
-          console.warn('[API ANUNCIOS] Pollinations timeout/erro:', (polErr as Error).message);
+          console.warn('[API ANUNCIOS] Pollinations demorou ou falhou:', (polErr as Error).message);
         }
 
-        // Opção B: Fallback Temático HD Instantâneo (< 1s)
-        const photoId = escolherFotoTematica(ramo);
-        const fallbackUrl = `https://images.unsplash.com/${photoId}?auto=format&fit=crop&w=800&h=450&q=80`;
-
+        // Se Pollinations não respondeu no tempo, tenta Unsplash rápido
         if (!imageBuffer) {
           try {
-            console.log('[API ANUNCIOS] Usando fallback Unsplash, photoId:', photoId);
-            const unsplashRes = await fetch(fallbackUrl, { signal: AbortSignal.timeout(5000) });
+            console.log('[API ANUNCIOS] Tentando Unsplash rápido...');
+            const unsplashRes = await fetch(fallbackUnsplashUrl, { signal: AbortSignal.timeout(3000) });
             if (unsplashRes.ok) {
               const arr = await unsplashRes.arrayBuffer();
-              console.log('[API ANUNCIOS] Unsplash respondeu, tamanho:', arr.byteLength);
               if (arr.byteLength > 1000) {
                 imageBuffer = Buffer.from(arr);
                 imageSource = 'unsplash';
               }
-            } else {
-              console.warn('[API ANUNCIOS] Unsplash retornou status:', unsplashRes.status);
             }
           } catch (unsplashErr) {
-            console.error('[API ANUNCIOS] Erro Unsplash:', unsplashErr);
+            console.warn('[API ANUNCIOS] Erro Unsplash:', unsplashErr);
           }
         }
 
-        // Guardar a URL direta do Unsplash como último recurso
-        background_direct_url = fallbackUrl;
-
-        // Salvar a imagem no Storage Supabase
+        // Se conseguimos o buffer, tenta salvar no Storage Supabase
         if (imageBuffer) {
-          const filename = `arte-ia-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.jpg`;
-          console.log('[API ANUNCIOS] Fazendo upload no Storage, fonte:', imageSource, ', arquivo:', filename);
+          try {
+            const filename = `arte-ia-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.jpg`;
+            const { error: uploadErr } = await storageClient.storage
+              .from('patrocinadores')
+              .upload(filename, imageBuffer, {
+                contentType: 'image/jpeg',
+                upsert: true,
+              });
 
-          const { error: uploadErr } = await storageClient.storage
-            .from('patrocinadores')
-            .upload(filename, imageBuffer, {
-              contentType: 'image/jpeg',
-              upsert: true,
-            });
-
-          if (!uploadErr) {
-            background_storage_path = filename;
-            console.log('[API ANUNCIOS] ✅ Upload OK:', filename);
-          } else {
-            console.error('[API ANUNCIOS] ❌ Erro ao salvar imagem no Storage:', uploadErr);
-            // Fallback: usar URL direta para que o card não fique sem arte
-            if (background_direct_url) {
-              background_storage_path = background_direct_url;
-              console.log('[API ANUNCIOS] Usando URL direta como fallback:', background_direct_url);
+            if (!uploadErr) {
+              background_storage_path = filename;
+              console.log('[API ANUNCIOS] ✅ Salvo no Storage Supabase:', filename);
+            } else {
+              console.warn('[API ANUNCIOS] Upload no storage falhou, mantendo URL direta:', uploadErr.message);
             }
-            aviso = 'Chamadas criadas! A arte de fundo usa uma imagem externa. Configure SUPABASE_SERVICE_ROLE_KEY na Vercel para salvar no Storage.';
+          } catch (storageErr) {
+            console.warn('[API ANUNCIOS] Erro ao salvar no storage:', storageErr);
           }
-        } else {
-          console.warn('[API ANUNCIOS] Nenhuma imagem obtida (Pollinations e Unsplash falharam)');
         }
       } catch (imgErr) {
         console.error('[API ANUNCIOS] Erro geral ao processar imagem:', imgErr);
