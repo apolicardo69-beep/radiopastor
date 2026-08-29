@@ -69,6 +69,10 @@ export interface Sponsor {
   active: boolean;
   display_every_n_tracks: number;
   created_at: string;
+  whatsapp?: string | null;
+  headline?: string | null;
+  background_storage_path?: string | null;
+  cta_text?: string | null;
 }
 
 export interface Playlist {
