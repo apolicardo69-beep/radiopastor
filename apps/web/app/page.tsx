@@ -705,8 +705,11 @@ export default function ListenerPage() {
   }
 
   // A arte de fundo vive no mesmo bucket das logos, sob o prefixo "arte-ia/".
+  // Se o valor começar com "http", é uma URL externa direta (fallback quando
+  // o upload no Storage falhou) — devolvemos direto sem chamar getPublicUrl.
   function getSponsorArteUrl(storagePath?: string | null) {
     if (!storagePath) return '';
+    if (storagePath.startsWith('http')) return storagePath;
     const { data } = supabase.storage.from('patrocinadores').getPublicUrl(storagePath);
     return data.publicUrl;
   }

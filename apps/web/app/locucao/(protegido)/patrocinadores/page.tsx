@@ -47,6 +47,7 @@ function GeradorIA({
 
   function urlDaArte(path: string | null) {
     if (!path) return '';
+    if (path.startsWith('http')) return path;
     const { data } = supabase.storage.from('patrocinadores').getPublicUrl(path);
     return data.publicUrl;
   }
@@ -209,6 +210,113 @@ function GeradorIA({
 }
 
 // ---------------------------------------------------------------------------
+// Prévia em tempo real do Card de Patrocinador
+// ---------------------------------------------------------------------------
+function PreviaCard({
+  nome,
+  frase,
+  whatsapp,
+  logoUrl,
+  arteUrl,
+}: {
+  nome: string;
+  frase: string;
+  whatsapp: string;
+  logoUrl: string | null;
+  arteUrl: string | null;
+}) {
+  const hasWa = !!whatsapp.replace(/\D/g, '');
+
+  return (
+    <div className="rounded-2xl border border-[#e0c98a]/80 bg-[#fbf6ec] p-3 shadow-inner">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#8a6d3b]">
+        👁️ Prévia do Card (como aparecerá no app dos ouvintes)
+      </p>
+
+      {arteUrl ? (
+        <div className="relative min-h-[120px] overflow-hidden rounded-2xl border border-[#d9c9a8] shadow-sm">
+          <img
+            src={arteUrl}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/25" />
+
+          <div className="relative flex items-center gap-3 p-3.5">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={nome || 'Logo'}
+                className="h-12 w-12 shrink-0 rounded-xl border border-white/30 bg-white/95 object-contain p-1 shadow-md"
+              />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-md">
+                ⭐
+              </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-[#e8c87a]">
+                Apoio Cultural
+              </span>
+              <h3 className="truncate text-sm font-extrabold text-white drop-shadow-sm">
+                {nome || 'Nome do Patrocinador'}
+              </h3>
+              {frase && (
+                <p className="line-clamp-2 text-[11px] leading-tight text-white/85">
+                  {frase}
+                </p>
+              )}
+
+              {hasWa && (
+                <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#25D366] px-2.5 py-1 text-[10px] font-bold text-white shadow-sm">
+                  <span>💬</span>
+                  <span>Falar no WhatsApp</span>
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="relative overflow-hidden rounded-2xl border border-[#d9c9a8] bg-gradient-to-r from-[#f0e6d2] via-[#f7f1e6] to-[#f0e6d2] p-3.5 shadow-xs">
+          <div className="flex items-center gap-3">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={nome || 'Logo'}
+                className="h-10 w-10 shrink-0 rounded-xl object-contain bg-white/80 p-1 border border-[#d9c9a8]"
+              />
+            ) : (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-xs">
+                ⭐
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <span className="text-[9px] font-bold uppercase tracking-wider text-[#8a6d3b]">
+                Apoio Cultural
+              </span>
+              <h3 className="truncate text-xs font-bold text-[#2b2118]">
+                {nome || 'Nome do Patrocinador'}
+              </h3>
+              {frase && (
+                <p className="truncate text-[11px] text-[#5c4a35]">{frase}</p>
+              )}
+            </div>
+
+            {hasWa && (
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-sm text-white shadow-xs">
+                💬
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Página
 // ---------------------------------------------------------------------------
 export default function PatrocinadoresPage() {
@@ -222,6 +330,7 @@ export default function PatrocinadoresPage() {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [sucesso, setSucesso] = useState<string | null>(null);
 
   // Estado de edição
   const [editando, setEditando] = useState<Sponsor | null>(null);
@@ -269,6 +378,14 @@ export default function PatrocinadoresPage() {
 
   function getLogoUrl(path?: string | null) {
     if (!path) return '';
+    if (path.startsWith('http')) return path;
+    const { data } = supabase.storage.from('patrocinadores').getPublicUrl(path);
+    return data.publicUrl;
+  }
+
+  function getArteUrl(path?: string | null) {
+    if (!path) return '';
+    if (path.startsWith('http')) return path;
     const { data } = supabase.storage.from('patrocinadores').getPublicUrl(path);
     return data.publicUrl;
   }
@@ -285,6 +402,7 @@ export default function PatrocinadoresPage() {
     e.preventDefault();
     if (!nome.trim()) return;
     setErro(null);
+    setSucesso(null);
     setEnviando(true);
     try {
       let logoPath: string | null = null;
@@ -306,6 +424,7 @@ export default function PatrocinadoresPage() {
         display_every_n_tracks: intervalo,
       });
       if (error) throw error;
+
       setNome('');
       setFrase('');
       setWhatsapp('');
@@ -313,9 +432,12 @@ export default function PatrocinadoresPage() {
       setArquivo(null);
       setPreviewUrl(null);
       setIntervalo(9);
+      setSucesso('✅ Patrocinador salvo e card criado com sucesso!');
+      await carregar();
+      setTimeout(() => setSucesso(null), 5000);
     } catch (err: any) {
       console.error(err);
-      setErro('Não consegui salvar esse patrocinador. Tente de novo.');
+      setErro(err?.message || 'Não consegui salvar esse patrocinador. Tente de novo.');
     } finally {
       setEnviando(false);
     }
@@ -324,6 +446,32 @@ export default function PatrocinadoresPage() {
   // Bloquear/Desbloquear (tipo falta de pagamento)
   async function alternarBloqueio(s: Sponsor) {
     await supabase.from('sponsors').update({ active: !s.active }).eq('id', s.id);
+    await carregar();
+  }
+
+  // Excluir Patrocinador
+  async function excluirPatrocinador(s: Sponsor) {
+    const confirmar = window.confirm(`Tem certeza que deseja excluir o patrocinador "${s.name}"? Esta ação não pode ser desfeita.`);
+    if (!confirmar) return;
+
+    try {
+      // Limpeza de arquivos no storage
+      if (s.logo_storage_path && !s.logo_storage_path.startsWith('http')) {
+        await supabase.storage.from('patrocinadores').remove([s.logo_storage_path]);
+      }
+      if (s.background_storage_path && !s.background_storage_path.startsWith('http')) {
+        await supabase.storage.from('patrocinadores').remove([s.background_storage_path]);
+      }
+
+      const { error } = await supabase.from('sponsors').delete().eq('id', s.id);
+      if (error) throw error;
+
+      setPatrocinadores((prev) => prev.filter((item) => item.id !== s.id));
+      await carregar();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Não foi possível excluir este patrocinador. Tente novamente.');
+    }
   }
 
   // Abrir modal de edição
@@ -369,7 +517,7 @@ export default function PatrocinadoresPage() {
 
       if (editArquivo) {
         // Remove o logo antigo se existir
-        if (editando.logo_storage_path) {
+        if (editando.logo_storage_path && !editando.logo_storage_path.startsWith('http')) {
           await supabase.storage.from('patrocinadores').remove([editando.logo_storage_path]);
         }
         const caminho = `${crypto.randomUUID()}-${editArquivo.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
@@ -391,10 +539,11 @@ export default function PatrocinadoresPage() {
       }).eq('id', editando.id);
 
       if (error) throw error;
+      await carregar();
       fecharEdicao();
     } catch (err: any) {
       console.error(err);
-      setEditErro('Não consegui salvar as alterações. Tente de novo.');
+      setEditErro(err?.message || 'Não consegui salvar as alterações. Tente de novo.');
     } finally {
       setEditEnviando(false);
     }
@@ -446,6 +595,15 @@ export default function PatrocinadoresPage() {
                 artePathAtual={editArtePath}
               />
 
+              {/* Prévia ao vivo do Card no Modal */}
+              <PreviaCard
+                nome={editNome}
+                frase={editFrase}
+                whatsapp={editWhatsapp}
+                logoUrl={editPreviewUrl}
+                arteUrl={getArteUrl(editArtePath)}
+              />
+
               {/* Upload do Logotipo */}
               <div className="rounded-2xl border-2 border-dashed border-[#d9c9a8] bg-[#f7f1e6]/50 p-3 text-center transition hover:bg-[#f7f1e6]">
                 <label className="flex flex-col items-center justify-center cursor-pointer gap-2">
@@ -492,13 +650,27 @@ export default function PatrocinadoresPage() {
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={editEnviando || !editNome.trim()}
-                className="rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
-              >
-                {editEnviando ? 'Salvando...' : 'Salvar Alterações'}
-              </button>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="submit"
+                  disabled={editEnviando || !editNome.trim()}
+                  className="flex-1 rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
+                >
+                  {editEnviando ? 'Salvando...' : 'Salvar Alterações'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sp = editando;
+                    fecharEdicao();
+                    if (sp) excluirPatrocinador(sp);
+                  }}
+                  className="rounded-xl bg-[#fbeaea] px-3.5 py-2.5 text-xs font-bold text-[#b3261e] hover:bg-[#f8d7d7] transition active:scale-95 border border-[#e8b4b4]"
+                  title="Excluir este patrocinador"
+                >
+                  🗑️ Excluir
+                </button>
+              </div>
             </form>
             {editErro && <p className="mt-2 text-xs font-semibold text-[#b3261e]">{editErro}</p>}
           </div>
@@ -513,6 +685,12 @@ export default function PatrocinadoresPage() {
         <p className="mb-3 text-[11px] text-[#7a6a52]">
           Aparece na tela do celular dos ouvintes e no card fixo de patrocinadores.
         </p>
+
+        {sucesso && (
+          <div className="mb-3 rounded-2xl bg-[#eaf3ec] border border-[#2f6b4f]/30 p-3 text-xs font-bold text-[#2f6b4f] animate-in fade-in">
+            {sucesso}
+          </div>
+        )}
 
         <form onSubmit={adicionar} className="flex flex-col gap-3">
           <input
@@ -546,6 +724,17 @@ export default function PatrocinadoresPage() {
             onArteGerada={setArtePath}
             artePathAtual={artePath}
           />
+
+          {/* Prévia ao vivo do Card */}
+          {(nome || frase || previewUrl || artePath) && (
+            <PreviaCard
+              nome={nome}
+              frase={frase}
+              whatsapp={whatsapp}
+              logoUrl={previewUrl}
+              arteUrl={getArteUrl(artePath)}
+            />
+          )}
 
           {/* Espaço para Upload do Logotipo / Imagem */}
           <div className="rounded-2xl border-2 border-dashed border-[#d9c9a8] bg-[#f7f1e6]/50 p-3.5 text-center transition hover:bg-[#f7f1e6]">
@@ -610,13 +799,34 @@ export default function PatrocinadoresPage() {
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={enviando || !nome.trim()}
-            className="rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
-          >
-            {enviando ? 'Enviando e Salvando...' : 'Salvar Patrocinador com Logo'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={enviando || !nome.trim()}
+              className="flex-1 rounded-xl bg-[#2b2118] py-2.5 text-xs font-bold text-[#f7f1e6] shadow-sm disabled:opacity-50 transition active:scale-95"
+            >
+              {enviando ? 'Enviando e Criando Card...' : 'Salvar Patrocinador e Criar Card'}
+            </button>
+            {(nome || frase || whatsapp || artePath || arquivo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setNome('');
+                  setFrase('');
+                  setWhatsapp('');
+                  setArtePath(null);
+                  setArquivo(null);
+                  setPreviewUrl(null);
+                  setIntervalo(9);
+                  setErro(null);
+                }}
+                className="rounded-xl border border-[#d9c9a8] bg-[#f7f1e6] px-3.5 py-2.5 text-xs font-bold text-[#7a6a52] hover:bg-[#ebdcc0] transition active:scale-95"
+                title="Limpar formulário"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
         </form>
         {erro && <p className="mt-2 text-xs font-semibold text-[#b3261e]">{erro}</p>}
       </section>
@@ -629,6 +839,8 @@ export default function PatrocinadoresPage() {
         <ul className="flex flex-col gap-2.5">
           {patrocinadores.map((s) => {
             const logoUrl = getLogoUrl(s.logo_storage_path);
+            const arteUrl = getArteUrl(s.background_storage_path);
+
             return (
               <li
                 key={s.id}
@@ -676,26 +888,34 @@ export default function PatrocinadoresPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
                   {/* Botão Editar */}
                   <button
                     onClick={() => abrirEdicao(s)}
-                    className="rounded-xl px-2 py-1 text-xs font-bold text-[#2b6cb0] bg-[#ebf4ff] hover:bg-[#d3e8ff] active:scale-95 transition"
+                    className="rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#2b6cb0] bg-[#ebf4ff] hover:bg-[#d3e8ff] active:scale-95 transition"
                     title="Editar patrocinador"
                   >
-                    ✏️
+                    ✏️ Editar
                   </button>
                   {/* Botão Bloquear / Desbloquear */}
                   <button
                     onClick={() => alternarBloqueio(s)}
-                    className={`rounded-xl px-2 py-1 text-xs font-bold transition active:scale-95 ${
+                    className={`rounded-xl px-2.5 py-1.5 text-xs font-bold transition active:scale-95 ${
                       s.active
                         ? 'bg-[#fef2f2] text-[#b3261e] hover:bg-[#fde8e8]'
                         : 'bg-[#eaf3ec] text-[#2f6b4f] hover:bg-[#d4eadc]'
                     }`}
                     title={s.active ? 'Bloquear (ex: falta de pagamento)' : 'Desbloquear patrocinador'}
                   >
-                    {s.active ? '🔒' : '🔓'}
+                    {s.active ? '🔒 Bloquear' : '🔓 Ativar'}
+                  </button>
+                  {/* Botão Excluir */}
+                  <button
+                    onClick={() => excluirPatrocinador(s)}
+                    className="rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#b3261e] bg-[#fbeaea] hover:bg-[#f8d7d7] active:scale-95 transition"
+                    title="Excluir patrocinador definitivamente"
+                  >
+                    🗑️ Excluir
                   </button>
                 </div>
               </li>

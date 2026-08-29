@@ -2,7 +2,49 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-// Fallback para gerar chamadas publicitárias inteligentes caso nenhuma chave de IA esteja configurada
+// Mapeamento temático inteligente de imagens HD sem texto para o fundo do anúncio
+const THEME_PHOTOS: Record<string, string> = {
+  marcenaria: 'photo-1538688525198-9b88f6f53126', // madeira / móveis
+  moveis: 'photo-1538688525198-9b88f6f53126',
+  padaria: 'photo-1509440159596-0249088772ff', // pães / confeitaria
+  confeitaria: 'photo-1509440159596-0249088772ff',
+  restaurante: 'photo-1517248135467-4c7edcad34c4', // gastronomia
+  lanchonete: 'photo-1550547660-d9450f859349', // lanches
+  mecanica: 'photo-1486006920555-c77dce18193b', // automotivo / oficina
+  carros: 'photo-1486006920555-c77dce18193b',
+  dentista: 'photo-1629909613654-28e377c37b09', // odontologia / saúde
+  saude: 'photo-1576091160399-112ba8d25d1d', // clínica
+  farmacia: 'photo-1586015555751-63bb77f4322a', // drogaria
+  barbearia: 'photo-1503951914875-452162b0f3f1', // barbearia / salão
+  salao: 'photo-1560066984-138dadb4c035', // beleza
+  construcao: 'photo-1503387762-592deb58ef4e', // construção / arquitetura
+  engenharia: 'photo-1503387762-592deb58ef4e',
+  roupas: 'photo-1441986300917-64674bd600d8', // moda / boutique
+  moda: 'photo-1441986300917-64674bd600d8',
+  tecnologia: 'photo-1518770660439-4636190af475', // tecnologia / eletrônicos
+  celular: 'photo-1511707171634-5f897ff02aa9', // celulares
+  contabilidade: 'photo-1497366216548-37526070297c', // escritório executivo
+  advocacia: 'photo-1589829545856-d10d557cf95f', // jurídico
+  imobiliaria: 'photo-1560518883-ce09059eeffa', // imóveis
+  gospel: 'photo-1438232992991-995b7058bbb3', // igreja / fé
+  default: 'photo-1557683316-973673baf926', // gradiente dourado quente sofisticado
+};
+
+function escolherFotoTematica(ramo: string): string {
+  const normalizado = ramo
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  for (const [chave, photoId] of Object.entries(THEME_PHOTOS)) {
+    if (normalizado.includes(chave)) {
+      return photoId;
+    }
+  }
+  return THEME_PHOTOS.default;
+}
+
+// Fallback para gerar chamadas publicitárias inteligentes
 function gerarChamadasLocais(nome: string, ramo: string, detalhes?: string): string[] {
   const comp = detalhes ? ` (${detalhes})` : '';
   return [
@@ -38,7 +80,7 @@ export async function POST(req: Request) {
     let chamadas: string[] = [];
     let aviso: string | null = null;
 
-    // 1. Tentar gerar frases com Gemini ou OpenAI se houver chave no ambiente
+    // 1. Geração de Slogans / Chamadas com IA (Gemini ou OpenAI)
     const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     const openAiKey = process.env.OPENAI_API_KEY;
 
@@ -63,6 +105,7 @@ Regras:
               contents: [{ parts: [{ text: prompt }] }],
               generationConfig: { responseMimeType: 'application/json' },
             }),
+            signal: AbortSignal.timeout(6000),
           }
         );
 
@@ -94,6 +137,7 @@ Regras:
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.7,
           }),
+          signal: AbortSignal.timeout(6000),
         });
 
         if (res.ok) {
@@ -112,52 +156,108 @@ Regras:
       }
     }
 
-    // Se nenhuma IA externa respondeu ou se não há chave configurada, usa as chamadas inteligentes locais
+    // Fallback inteligente caso a IA não tenha retornado
     if (!chamadas || chamadas.length === 0) {
       chamadas = gerarChamadasLocais(nome, ramo, detalhes);
-      if (!geminiKey && !openAiKey) {
-        aviso = 'Chamadas geradas com sucesso!';
-      }
     }
 
-    // 2. Geração de Arte de Fundo (Background)
+    // 2. Geração da Arte de Fundo com IA e Fallback Ultrarrápido HD
     let background_storage_path: string | null = null;
+    // URL direta (usada como último recurso caso o upload no Storage falhe)
+    let background_direct_url: string | null = null;
 
     if (gerarImagem) {
       try {
-        // Criar cliente com service role para gravação no Storage se disponível, ou usar o cliente do usuário autenticado
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+
+        console.log('[API ANUNCIOS] service_role configurada:', !!serviceRoleKey);
+
         const storageClient = serviceRoleKey
           ? createSupabaseClient(supabaseUrl, serviceRoleKey)
           : supabase;
 
-        const promptImg = `clean elegant advertising banner background texture for ${ramo}, warm christian friendly aesthetic, minimal abstract, high quality, 4k, no text, no letters, no logos, no typography`;
-        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-          promptImg
-        )}?width=800&height=450&nologo=true&seed=${Date.now()}`;
+        let imageBuffer: Buffer | null = null;
+        let imageSource = 'nenhuma';
 
-        const imgRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(15000) });
-        if (imgRes.ok) {
-          const arrayBuffer = await imgRes.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-          const filename = `ia-bg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.jpg`;
+        // Opção A: Tentar gerar via IA com timeout generoso (8s)
+        try {
+          const promptImg = `clean elegant background texture for ${ramo}, warm aesthetic, minimal abstract, high quality, 4k, no text, no letters, no logos, no typography`;
+          const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+            promptImg
+          )}?width=800&height=450&nologo=true&seed=${Date.now()}`;
+
+          console.log('[API ANUNCIOS] Tentando Pollinations...');
+          const aiRes = await fetch(pollinationsUrl, { signal: AbortSignal.timeout(8000) });
+          if (aiRes.ok) {
+            const arr = await aiRes.arrayBuffer();
+            console.log('[API ANUNCIOS] Pollinations respondeu, tamanho:', arr.byteLength);
+            if (arr.byteLength > 1000) {
+              imageBuffer = Buffer.from(arr);
+              imageSource = 'pollinations';
+            }
+          } else {
+            console.warn('[API ANUNCIOS] Pollinations retornou status:', aiRes.status);
+          }
+        } catch (polErr) {
+          console.warn('[API ANUNCIOS] Pollinations timeout/erro:', (polErr as Error).message);
+        }
+
+        // Opção B: Fallback Temático HD Instantâneo (< 1s)
+        const photoId = escolherFotoTematica(ramo);
+        const fallbackUrl = `https://images.unsplash.com/${photoId}?auto=format&fit=crop&w=800&h=450&q=80`;
+
+        if (!imageBuffer) {
+          try {
+            console.log('[API ANUNCIOS] Usando fallback Unsplash, photoId:', photoId);
+            const unsplashRes = await fetch(fallbackUrl, { signal: AbortSignal.timeout(5000) });
+            if (unsplashRes.ok) {
+              const arr = await unsplashRes.arrayBuffer();
+              console.log('[API ANUNCIOS] Unsplash respondeu, tamanho:', arr.byteLength);
+              if (arr.byteLength > 1000) {
+                imageBuffer = Buffer.from(arr);
+                imageSource = 'unsplash';
+              }
+            } else {
+              console.warn('[API ANUNCIOS] Unsplash retornou status:', unsplashRes.status);
+            }
+          } catch (unsplashErr) {
+            console.error('[API ANUNCIOS] Erro Unsplash:', unsplashErr);
+          }
+        }
+
+        // Guardar a URL direta do Unsplash como último recurso
+        background_direct_url = fallbackUrl;
+
+        // Salvar a imagem no Storage Supabase
+        if (imageBuffer) {
+          const filename = `arte-ia-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.jpg`;
+          console.log('[API ANUNCIOS] Fazendo upload no Storage, fonte:', imageSource, ', arquivo:', filename);
 
           const { error: uploadErr } = await storageClient.storage
             .from('patrocinadores')
-            .upload(filename, buffer, {
+            .upload(filename, imageBuffer, {
               contentType: 'image/jpeg',
               upsert: true,
             });
 
           if (!uploadErr) {
             background_storage_path = filename;
+            console.log('[API ANUNCIOS] ✅ Upload OK:', filename);
           } else {
-            console.error('[API ANUNCIOS] Erro ao salvar imagem no Storage:', uploadErr);
+            console.error('[API ANUNCIOS] ❌ Erro ao salvar imagem no Storage:', uploadErr);
+            // Fallback: usar URL direta para que o card não fique sem arte
+            if (background_direct_url) {
+              background_storage_path = background_direct_url;
+              console.log('[API ANUNCIOS] Usando URL direta como fallback:', background_direct_url);
+            }
+            aviso = 'Chamadas criadas! A arte de fundo usa uma imagem externa. Configure SUPABASE_SERVICE_ROLE_KEY na Vercel para salvar no Storage.';
           }
+        } else {
+          console.warn('[API ANUNCIOS] Nenhuma imagem obtida (Pollinations e Unsplash falharam)');
         }
       } catch (imgErr) {
-        console.error('[API ANUNCIOS] Erro ao gerar/baixar imagem:', imgErr);
+        console.error('[API ANUNCIOS] Erro geral ao processar imagem:', imgErr);
       }
     }
 
