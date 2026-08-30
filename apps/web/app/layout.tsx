@@ -5,7 +5,18 @@ import "./globals.css";
 // (app/locucao/layout.tsx) declara o seu próprio, diferente — os dois
 // viram apps instaláveis separados, cada um com seu ícone e nome na tela
 // do celular, mesmo estando no mesmo site.
+//
+// A partir daqui também ficam as marcações de Open Graph: é o que faz o
+// WhatsApp (e Facebook, Telegram, iMessage) mostrarem aquele card grande
+// com a arte da rádio quando alguém compartilha o link, em vez de só o
+// endereço cru. Não mexe em nada do PWA — são apenas tags no <head> que
+// esses aplicativos leem antes de exibir o link.
 export const metadata: Metadata = {
+  // Sem metadataBase o Next escreve o caminho relativo da imagem
+  // (/og-instalar.jpg) e o WhatsApp não consegue baixá-la, porque ele exige
+  // URL absoluta. É a causa mais comum do card não aparecer.
+  metadataBase: new URL("https://radiopastor.vercel.app"),
+
   title: "Rádio Graça & Paz",
   description: "Rádio web da igreja — 24h na Palavra, louvores e bate-papo com os ouvintes.",
   manifest: "/manifest-ouvinte.webmanifest",
@@ -20,6 +31,33 @@ export const metadata: Metadata = {
   },
   formatDetection: {
     telephone: false,
+  },
+
+  openGraph: {
+    type: "website",
+    locale: "pt_BR",
+    url: "https://radiopastor.vercel.app",
+    siteName: "Rádio Graça & Paz",
+    title: "Rádio Graça & Paz — ao vivo, 24 horas",
+    description: "Toque para abrir e instalar o app da rádio no seu celular.",
+    images: [
+      {
+        url: "/og-instalar.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Rádio Graça & Paz — Instalar aplicativo",
+      },
+    ],
+  },
+
+  // Alguns aplicativos usam as marcações do Twitter/X em vez das do Open
+  // Graph; sem elas, eles caem numa prévia pequena, com a imagem em
+  // miniatura quadrada em vez do card grande.
+  twitter: {
+    card: "summary_large_image",
+    title: "Rádio Graça & Paz — ao vivo, 24 horas",
+    description: "Toque para abrir e instalar o app da rádio no seu celular.",
+    images: ["/og-instalar.jpg"],
   },
 };
 

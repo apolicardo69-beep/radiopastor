@@ -27,21 +27,40 @@ function getSponsorWhatsappLink(sponsor: Sponsor): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Fundos de reserva, pra quando o anúncio ainda não tem arte gerada
+// ---------------------------------------------------------------------------
+// O card tem SEMPRE o mesmo formato: fundo escuro ocupando o card inteiro,
+// logo e texto por cima. O que muda é só de onde vem esse fundo — a arte
+// gerada pela IA, ou um destes degradês.
+//
+// Isso é de propósito: assim o anúncio já fica bonito no dia em que o pastor
+// cadastra, sem depender de gerar imagem nenhuma, e ganha a foto depois sem
+// que o layout mude. São tons quentes, da mesma família do resto do app.
+const FUNDOS_RESERVA = [
+  'radial-gradient(circle at 75% 30%, #c9a06a, transparent 55%), linear-gradient(135deg, #8a6d3b 0%, #5c4a35 45%, #2b2118 100%)',
+  'radial-gradient(circle at 78% 32%, #b3705a, transparent 55%), linear-gradient(135deg, #8a4b3b 0%, #4a2e26 45%, #2b2118 100%)',
+  'radial-gradient(circle at 72% 28%, #7f9a72, transparent 55%), linear-gradient(135deg, #3f5c46 0%, #2b3a2e 45%, #1a140e 100%)',
+  'radial-gradient(circle at 80% 35%, #a88bb0, transparent 55%), linear-gradient(135deg, #5c4566 0%, #33263a 45%, #1a140e 100%)',
+];
+
+// Escolhe sempre o mesmo degradê pro mesmo anunciante (some da soma dos
+// caracteres do id), pra que o card não fique mudando de cor a cada rodízio.
+function fundoDoSponsor(id: string): string {
+  let soma = 0;
+  for (let i = 0; i < id.length; i++) soma += id.charCodeAt(i);
+  return FUNDOS_RESERVA[soma % FUNDOS_RESERVA.length];
+}
+
+// ---------------------------------------------------------------------------
 // Card fixo do patrocinador
 // ---------------------------------------------------------------------------
-// Duas aparências, escolhidas pelo que o anúncio tem cadastrado:
+// Um único formato, com ou sem arte: imagem/degradê ao fundo, véu escuro por
+// cima pra garantir leitura, e a logo real + o texto real desenhados em cima.
+// A arte gerada nunca contém texto — quem escreve o nome do anunciante é o
+// app, com fonte de verdade, pra marca nunca sair deformada.
 //
-//  - COM arte de fundo (gerada por IA no Estúdio): card grande, com a imagem
-//    ao fundo, um véu escuro por cima pra garantir leitura, e a logo real +
-//    o texto real desenhados por cima. A arte nunca contém texto: quem
-//    escreve o nome é o app, com fonte de verdade.
-//
-//  - SEM arte: exatamente o card compacto de antes, pra que os anúncios já
-//    cadastrados continuem aparecendo igual, sem ninguém precisar refazer
-//    nada.
-//
-// Se houver WhatsApp cadastrado, o card inteiro vira um link — o alvo de
-// toque é o card todo, não um botãozinho, o que importa muito no celular.
+// Se houver WhatsApp cadastrado, o card inteiro vira um link: o alvo de toque
+// é o card todo, não um botãozinho, o que importa muito no celular.
 function CardPatrocinador({
   sponsor,
   indice,
@@ -57,97 +76,69 @@ function CardPatrocinador({
 }) {
   const waLink = getSponsorWhatsappLink(sponsor);
 
-  const selo = (
-    <div className="flex items-center gap-1.5">
-      <span
-        className={`text-[9px] font-bold uppercase tracking-wider ${
-          arteUrl ? 'text-[#e8c87a]' : 'text-[#8a6d3b]'
-        }`}
-      >
-        Apoio Cultural
-      </span>
-      {total > 1 && (
-        <span className={`text-[9px] ${arteUrl ? 'text-white/60' : 'text-[#a0937a]'}`}>
-          ({indice + 1}/{total})
-        </span>
+  const miolo = (
+    <div className="relative min-h-[140px] overflow-hidden rounded-2xl border border-[#d9c9a8] shadow-md">
+      {/* Fundo: a arte gerada, ou o degradê de reserva */}
+      {arteUrl ? (
+        <img
+          src={arteUrl}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <div
+          className="absolute inset-0"
+          style={{ backgroundImage: fundoDoSponsor(sponsor.id) }}
+        />
       )}
-    </div>
-  );
 
-  const miolo = arteUrl ? (
-    // ----- Versão com arte de fundo -----
-    <div className="relative min-h-[132px] overflow-hidden rounded-2xl border border-[#d9c9a8] shadow-sm">
-      <img
-        src={arteUrl}
-        alt=""
-        aria-hidden="true"
-        className="absolute inset-0 h-full w-full object-cover"
-      />
       {/* Véu escuro: sem ele, texto claro sobre foto clara fica ilegível.
-          Mais denso à esquerda, que é onde ficam logo e texto. */}
-      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/25" />
+          Mais denso à esquerda, que é onde ficam a logo e o texto. */}
+      <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/55 to-black/20" />
 
-      <div className="relative flex items-center gap-3 p-3.5">
+      <div className="relative flex items-center gap-3 p-4">
         {logoUrl ? (
           <img
             src={logoUrl}
             alt={sponsor.name}
-            className="h-12 w-12 shrink-0 rounded-xl border border-white/30 bg-white/95 object-contain p-1 shadow-md"
+            className="h-14 w-14 shrink-0 rounded-2xl border border-[#d4af37]/50 bg-white object-contain p-1 shadow-lg"
           />
         ) : (
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-md">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[#d4af37]/50 bg-[#8a6d3b] text-xl text-white shadow-lg">
             ⭐
           </div>
         )}
 
         <div className="min-w-0 flex-1">
-          {selo}
-          <h3 className="truncate text-sm font-extrabold text-white drop-shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-[#e8c87a]">
+              Apoio Cultural
+            </span>
+            {total > 1 && (
+              <span className="text-[9px] text-white/50">
+                ({indice + 1}/{total})
+              </span>
+            )}
+          </div>
+
+          <h3 className="truncate text-[15px] font-extrabold text-white drop-shadow-sm">
             {sponsor.name}
           </h3>
+
           {sponsor.tagline && (
-            <p className="line-clamp-2 text-[11px] leading-tight text-white/85">
+            <p className="line-clamp-2 text-[11.5px] leading-snug text-white/80">
               {sponsor.tagline}
             </p>
           )}
 
           {waLink && (
-            <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-[#25D366] px-2.5 py-1 text-[10px] font-bold text-white shadow-sm">
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#25D366] px-3 py-1.5 text-[10.5px] font-extrabold text-white shadow-md">
               <span>💬</span>
               <span>Falar no WhatsApp</span>
             </span>
           )}
         </div>
-      </div>
-    </div>
-  ) : (
-    // ----- Versão compacta (como era antes) -----
-    <div className="relative overflow-hidden rounded-2xl border border-[#d9c9a8] bg-gradient-to-r from-[#f0e6d2] via-[#f7f1e6] to-[#f0e6d2] p-3.5 shadow-xs transition duration-500">
-      <div className="flex items-center gap-3">
-        {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt={sponsor.name}
-            className="h-10 w-10 shrink-0 rounded-xl object-contain bg-white/80 p-1 border border-[#d9c9a8]"
-          />
-        ) : (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#8a6d3b] text-base text-white shadow-xs">
-            ⭐
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          {selo}
-          <h3 className="truncate text-xs font-bold text-[#2b2118]">{sponsor.name}</h3>
-          {sponsor.tagline && (
-            <p className="truncate text-[11px] text-[#5c4a35]">{sponsor.tagline}</p>
-          )}
-        </div>
-
-        {waLink && (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-sm text-white shadow-xs">
-            💬
-          </span>
-        )}
       </div>
     </div>
   );
@@ -705,11 +696,8 @@ export default function ListenerPage() {
   }
 
   // A arte de fundo vive no mesmo bucket das logos, sob o prefixo "arte-ia/".
-  // Se o valor começar com "http", é uma URL externa direta (fallback quando
-  // o upload no Storage falhou) — devolvemos direto sem chamar getPublicUrl.
   function getSponsorArteUrl(storagePath?: string | null) {
     if (!storagePath) return '';
-    if (storagePath.startsWith('http')) return storagePath;
     const { data } = supabase.storage.from('patrocinadores').getPublicUrl(storagePath);
     return data.publicUrl;
   }
@@ -741,20 +729,25 @@ export default function ListenerPage() {
               ✕
             </button>
 
-            {/* Faixa com a arte gerada, quando o anúncio tiver uma */}
-            {sponsor.background_storage_path && (
-              <div className="relative h-32 w-full">
+            {/* Faixa do topo: a arte gerada, ou o mesmo degradê do card fixo */}
+            <div className="relative h-32 w-full">
+              {sponsor.background_storage_path ? (
                 <img
                   src={getSponsorArteUrl(sponsor.background_storage_path)}
                   alt=""
                   aria-hidden="true"
                   className="h-full w-full object-cover"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#f7f1e6] via-[#f7f1e6]/30 to-transparent" />
-              </div>
-            )}
+              ) : (
+                <div
+                  className="h-full w-full"
+                  style={{ backgroundImage: fundoDoSponsor(sponsor.id) }}
+                />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#f7f1e6] via-[#f7f1e6]/30 to-transparent" />
+            </div>
 
-            <div className={sponsor.background_storage_path ? 'px-6 pb-6 -mt-6 relative' : 'p-6'}>
+            <div className="relative -mt-6 px-6 pb-6">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#8a6d3b]">
                 ⭐ Momento Patrocinado
               </p>
