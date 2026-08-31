@@ -3,14 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Track, Playlist, OuvinteOnline } from '@/lib/types';
-import { extractYouTubeVideoId, isYouTubeUrl } from '@/lib/youtube';
-
-declare global {
-  interface Window {
-    YT?: any;
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
+import { extractYouTubeVideoId } from '@/lib/youtube';
 
 interface PlayerState {
   musicaTocando: Track | null;
@@ -73,7 +66,7 @@ export function usePlayer() {
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ytPlayerRef = useRef<any>(null);
+  const ytIframeRef = useRef<HTMLIFrameElement | null>(null);
   const proximaRef = useRef<() => void>(() => {});
 
   const [musicaTocando, setMusicaTocando] = useState<Track | null>(null);
@@ -89,6 +82,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const youtubeVideoId = musicaTocando ? extractYouTubeVideoId(musicaTocando.source_url || '') : null;
   const isYouTube = Boolean(musicaTocando?.source === 'link' && youtubeVideoId);
 
+  // Enviar comando para o iframe do YouTube via postMessage seguro
+  const sendYtCommand = useCallback((func: string, args: any[] = []) => {
+    try {
+      if (ytIframeRef.current?.contentWindow) {
+        ytIframeRef.current.contentWindow.postMessage(
+          JSON.stringify({
+            event: 'command',
+            func,
+            args,
+          }),
+          '*'
+        );
+      }
+    } catch (err) {
+      console.warn('Erro ao enviar comando postMessage para YouTube:', err);
+    }
+  }, []);
+
   function getTrackUrl(track: Track): string {
     if (track.source === 'link' && track.source_url) return track.source_url;
     if (track.storage_path) {
@@ -98,68 +109,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return '';
   }
 
-  const criarOuAtualizarPlayerYoutube = useCallback(
-    (initialVideoId: string) => {
-      if (typeof window === 'undefined' || !window.YT || !window.YT.Player) return;
-
-      if (ytPlayerRef.current && typeof ytPlayerRef.current.loadVideoById === 'function') {
-        try {
-          ytPlayerRef.current.loadVideoById(initialVideoId);
-          ytPlayerRef.current.setVolume(Math.round(volumeMusica * 100));
-          ytPlayerRef.current.playVideo();
-          return;
-        } catch (e) {
-          console.warn('Erro ao atualizar vídeo no player existente:', e);
-        }
-      }
-
-      try {
-        ytPlayerRef.current = new window.YT.Player('youtube-player-iframe', {
-          height: '100%',
-          width: '100%',
-          videoId: initialVideoId,
-          playerVars: {
-            autoplay: 1,
-            controls: 1,
-            modestbranding: 1,
-            rel: 0,
-            playsinline: 1,
-            origin: window.location.origin,
-          },
-          events: {
-            onReady: (event: any) => {
-              event.target.setVolume(Math.round(volumeMusica * 100));
-              event.target.playVideo();
-            },
-            onStateChange: (event: any) => {
-              if (event.data === window.YT.PlayerState.PLAYING) {
-                setEstaTocando(true);
-              } else if (event.data === window.YT.PlayerState.PAUSED) {
-                setEstaTocando(false);
-              } else if (event.data === window.YT.PlayerState.ENDED) {
-                setEstaTocando(false);
-                proximaRef.current?.();
-              }
-            },
-            onError: (err: any) => {
-              console.warn('Erro no YouTube Player:', err);
-              setEstaTocando(false);
-            },
-          },
-        });
-      } catch (err) {
-        console.error('Erro ao inicializar YouTube Player:', err);
-      }
-    },
-    [volumeMusica]
-  );
-
   const tocarTrackInterno = useCallback(
     (track: Track) => {
       const ytId = track.source === 'link' ? extractYouTubeVideoId(track.source_url || '') : null;
 
       if (ytId) {
-        // Pausar áudio normal se estava tocando
+        // Pausar áudio convencional
         if (audioRef.current) {
           audioRef.current.pause();
           audioRef.current.removeAttribute('src');
@@ -168,31 +123,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         setMusicaTocando(track);
         setEstaTocando(true);
 
-        if (typeof window !== 'undefined') {
-          if (!window.YT || !window.YT.Player) {
-            if (!document.getElementById('youtube-iframe-api')) {
-              const tag = document.createElement('script');
-              tag.id = 'youtube-iframe-api';
-              tag.src = 'https://www.youtube.com/iframe_api';
-              document.head.appendChild(tag);
-            }
-
-            const prevOnReady = window.onYouTubeIframeAPIReady;
-            window.onYouTubeIframeAPIReady = () => {
-              if (prevOnReady) prevOnReady();
-              criarOuAtualizarPlayerYoutube(ytId);
-            };
-          } else {
-            criarOuAtualizarPlayerYoutube(ytId);
-          }
-        }
+        // Disparar play no iframe após montagem
+        setTimeout(() => {
+          sendYtCommand('playVideo');
+          sendYtCommand('setVolume', [Math.round(volumeMusica * 100)]);
+          sendYtCommand('unMute');
+        }, 300);
       } else {
-        // Faixa de áudio convencional (.mp3 / storage)
-        if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
-          try {
-            ytPlayerRef.current.pauseVideo();
-          } catch {}
-        }
+        // Pausar YouTube se estava tocando
+        sendYtCommand('pauseVideo');
 
         const url = getTrackUrl(track);
         if (!url || !audioRef.current) return;
@@ -218,7 +157,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           });
       }
     },
-    [criarOuAtualizarPlayerYoutube, volumeMusica]
+    [sendYtCommand, volumeMusica]
   );
 
   const tocar = useCallback(
@@ -242,27 +181,21 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) {
       audioRef.current.pause();
     }
-    if (ytPlayerRef.current && typeof ytPlayerRef.current.pauseVideo === 'function') {
-      try {
-        ytPlayerRef.current.pauseVideo();
-      } catch {}
-    }
+    sendYtCommand('pauseVideo');
     setEstaTocando(false);
-  }, []);
+  }, [sendYtCommand]);
 
   const retomar = useCallback(() => {
-    if (isYouTube && ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
-      try {
-        ytPlayerRef.current.playVideo();
-        setEstaTocando(true);
-      } catch {}
+    if (isYouTube) {
+      sendYtCommand('playVideo');
+      setEstaTocando(true);
     } else if (audioRef.current && musicaTocando) {
       audioRef.current
         .play()
         .then(() => setEstaTocando(true))
         .catch(() => {});
     }
-  }, [isYouTube, musicaTocando]);
+  }, [isYouTube, musicaTocando, sendYtCommand]);
 
   const tocarPlaylist = useCallback(
     (playlist: Playlist, tracks: Track[]) => {
@@ -277,17 +210,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const pararPlaylist = useCallback(() => {
     pausar();
-    if (ytPlayerRef.current && typeof ytPlayerRef.current.stopVideo === 'function') {
-      try {
-        ytPlayerRef.current.stopVideo();
-      } catch {}
-    }
+    sendYtCommand('stopVideo');
     setPlaylistAtiva(null);
     setFilaPlaylist([]);
     setIndiceFila(0);
     setMusicaTocando(null);
     setMostrarVideoYoutube(false);
-  }, [pausar]);
+  }, [pausar, sendYtCommand]);
 
   const proxima = useCallback(() => {
     if (filaPlaylist.length === 0) return;
@@ -313,6 +242,35 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     proximaRef.current = proxima;
   }, [proxima]);
 
+  // Escutar eventos do iframe do YouTube via postMessage
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+        if (!data) return;
+
+        // Estado do YouTube mudou
+        if (data.event === 'onStateChange' || data.info !== undefined) {
+          const state = typeof data.info === 'number' ? data.info : data.info?.playerState;
+          if (state === 1) {
+            // PLAYING
+            setEstaTocando(true);
+          } else if (state === 2) {
+            // PAUSED
+            setEstaTocando(false);
+          } else if (state === 0) {
+            // ENDED
+            setEstaTocando(false);
+            proximaRef.current?.();
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
   // Quando a música termina no elemento HTML audio, toca a próxima da playlist
   useEffect(() => {
     const audioEl = audioRef.current;
@@ -329,17 +287,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return () => audioEl.removeEventListener('ended', handleEnded);
   }, [filaPlaylist]);
 
-  // Atualizar volume quando muda (áudio HTML e player YouTube)
+  // Atualizar volume quando muda
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = Math.min(1, Math.max(0, volumeMusica));
     }
-    if (ytPlayerRef.current && typeof ytPlayerRef.current.setVolume === 'function') {
-      try {
-        ytPlayerRef.current.setVolume(Math.round(volumeMusica * 100));
-      } catch {}
-    }
-  }, [volumeMusica]);
+    sendYtCommand('setVolume', [Math.round(volumeMusica * 100)]);
+  }, [volumeMusica, sendYtCommand]);
 
   // Monitorar ouvintes online em tempo real de forma contínua em todo o painel
   useEffect(() => {
@@ -401,30 +355,74 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       {/* Audio element global — vive no layout, persiste entre navegações */}
       <audio ref={audioRef} />
 
-      {/* Container do player YouTube embutido (suporta áudio em segundo plano e vídeo flutuante) */}
-      <div
-        id="youtube-player-wrapper"
-        aria-label="Player YouTube"
-        className={`fixed z-50 transition-all duration-300 rounded-3xl overflow-hidden shadow-2xl border-2 border-[#d9c9a8] bg-black ${
-          isYouTube && mostrarVideoYoutube
-            ? 'bottom-20 right-4 w-72 h-44 sm:w-80 sm:h-48 opacity-100 scale-100 pointer-events-auto'
-            : 'bottom-0 right-0 w-1 h-1 opacity-0 pointer-events-none'
-        }`}
-      >
-        {isYouTube && mostrarVideoYoutube && (
-          <div className="absolute top-2 right-2 z-10">
-            <button
-              onClick={() => setMostrarVideoYoutube(false)}
-              className="flex h-6 w-6 items-center justify-center rounded-full bg-black/70 text-white text-xs font-bold hover:bg-black active:scale-95"
-              title="Minimizar vídeo (o som continua tocando)"
+      {/* Player YouTube Seguro embutido */}
+      {isYouTube && youtubeVideoId && (
+        <div
+          id="youtube-player-container"
+          className={
+            mostrarVideoYoutube
+              ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in'
+              : 'fixed -bottom-[999px] -right-[999px] w-1 h-1 opacity-0 pointer-events-none overflow-hidden'
+          }
+          onClick={mostrarVideoYoutube ? () => setMostrarVideoYoutube(false) : undefined}
+        >
+          {mostrarVideoYoutube ? (
+            <div
+              className="relative w-full max-w-lg rounded-3xl bg-[#2b2118] p-4 shadow-2xl border border-[#d9c9a8] flex flex-col gap-3 animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
             >
-              ✕
-            </button>
-          </div>
-        )}
-        <div id="youtube-player-iframe" className="w-full h-full" />
-      </div>
+              <div className="flex items-center justify-between border-b border-[#d9c9a8]/30 pb-2">
+                <div className="min-w-0 flex-1 pr-2">
+                  <p className="text-[10px] font-black text-red-500 uppercase tracking-wider flex items-center gap-1">
+                    <span>🔴</span> YouTube no Ar
+                  </p>
+                  <p className="truncate text-xs font-bold text-white">
+                    {musicaTocando?.title || 'Vídeo do YouTube'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setMostrarVideoYoutube(false)}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white hover:bg-white/20 active:scale-95 cursor-pointer"
+                  title="Minimizar (o áudio continua tocando)"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Iframe seguro com sandbox anti-redirecionamento */}
+              <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-inner">
+                <iframe
+                  ref={ytIframeRef}
+                  src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=1`}
+                  title="YouTube Player"
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  sandbox="allow-scripts allow-same-origin allow-presentation"
+                  className="w-full h-full border-0"
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-[#d9c9a8] px-1">
+                <span>🎵 O áudio continua tocando mesmo se fechar a janela</span>
+                <button
+                  onClick={() => setMostrarVideoYoutube(false)}
+                  className="rounded-xl bg-white/10 px-3 py-1 text-xs font-bold text-white hover:bg-white/20 active:scale-95 cursor-pointer"
+                >
+                  Ocultar Tela
+                </button>
+              </div>
+            </div>
+          ) : (
+            <iframe
+              ref={ytIframeRef}
+              src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=0`}
+              title="YouTube Audio Player"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              sandbox="allow-scripts allow-same-origin allow-presentation"
+              className="w-1 h-1 border-0"
+            />
+          )}
+        </div>
+      )}
     </PlayerContext.Provider>
   );
 }
-
