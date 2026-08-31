@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Track, Playlist, OuvinteOnline } from '@/lib/types';
-import { extractYouTubeVideoId } from '@/lib/youtube';
+import { extractYouTubeVideoId, getYouTubeThumbnail } from '@/lib/youtube';
 
 interface PlayerState {
   musicaTocando: Track | null;
@@ -324,6 +324,58 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Suporte a reprodução em segundo plano (Background Audio) e controles na tela de bloqueio do celular
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
+
+    if (musicaTocando) {
+      const isYt = Boolean(musicaTocando.source === 'link' && extractYouTubeVideoId(musicaTocando.source_url || ''));
+      const thumb = isYt && musicaTocando.source_url ? getYouTubeThumbnail(musicaTocando.source_url) : '/icons/icon-192x192.png';
+
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: musicaTocando.title || 'Louvor ao Vivo',
+          artist: isYt ? 'YouTube · Rádio Graça & Paz' : (playlistAtiva ? playlistAtiva.name : 'Rádio Graça & Paz'),
+          album: 'Estúdio de Transmissão',
+          artwork: [
+            { src: thumb, sizes: '96x96', type: 'image/png' },
+            { src: thumb, sizes: '128x128', type: 'image/png' },
+            { src: thumb, sizes: '192x192', type: 'image/png' },
+            { src: thumb, sizes: '512x512', type: 'image/png' },
+          ],
+        });
+        navigator.mediaSession.playbackState = estaTocando ? 'playing' : 'paused';
+      } catch {}
+    } else {
+      try {
+        navigator.mediaSession.playbackState = 'none';
+      } catch {}
+    }
+  }, [musicaTocando, estaTocando, playlistAtiva]);
+
+  // Ações de controle da tela de bloqueio e fone de ouvido
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
+
+    try {
+      navigator.mediaSession.setActionHandler('play', () => retomar());
+      navigator.mediaSession.setActionHandler('pause', () => pausar());
+      navigator.mediaSession.setActionHandler('previoustrack', () => anterior());
+      navigator.mediaSession.setActionHandler('nexttrack', () => proxima());
+      navigator.mediaSession.setActionHandler('stop', () => pararPlaylist());
+    } catch {}
+
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler('play', null);
+        navigator.mediaSession.setActionHandler('pause', null);
+        navigator.mediaSession.setActionHandler('previoustrack', null);
+        navigator.mediaSession.setActionHandler('nexttrack', null);
+        navigator.mediaSession.setActionHandler('stop', null);
+      } catch {}
+    };
+  }, [retomar, pausar, anterior, proxima, pararPlaylist]);
+
   return (
     <PlayerContext.Provider
       value={{
@@ -352,8 +404,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-      {/* Audio element global — vive no layout, persiste entre navegações */}
-      <audio ref={audioRef} />
+      {/* Audio element global — vive no layout, persiste entre navegações e em segundo plano */}
+      <audio ref={audioRef} playsInline preload="auto" />
 
       {/* Player YouTube Seguro embutido */}
       {isYouTube && youtubeVideoId && (
