@@ -7,6 +7,7 @@ import { useAudioBroadcast } from '@/lib/useAudioBroadcast';
 import { usePlayer } from '@/lib/PlayerContext';
 import type { BroadcastState, Track, Playlist, PlaylistItem, JingleSlot } from '@/lib/types';
 import MensagemDoDiaEditor from '@/components/MensagemDoDiaEditor';
+import { isYouTubeUrl, getYouTubeThumbnail } from '@/lib/youtube';
 
 const TEXTO_STATUS: Record<string, string> = {
   parado: 'Fora do ar · Toca playlist 24h',
@@ -932,6 +933,9 @@ export default function LocucaoHome() {
         <ul className="flex flex-col gap-2">
           {tracks.map((track) => {
             const estaTocandoEsta = musicaTocando?.id === track.id && estaTocando;
+            const isYt = isYouTubeUrl(track.source_url);
+            const ytThumb = isYt && track.source_url ? getYouTubeThumbnail(track.source_url) : null;
+
             return (
               <li
                 key={track.id}
@@ -940,23 +944,50 @@ export default function LocucaoHome() {
                 }`}
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                  <button
-                    onClick={() =>
-                      dispararAudioNaTransmissao(() => {
-                        tocar(track);
-                      })
-                    }
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm transition active:scale-90 ${
-                      estaTocandoEsta ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
-                    }`}
-                    title={estaTocandoEsta ? 'Pausar louvor' : 'Tocar louvor'}
-                  >
-                    {estaTocandoEsta ? '⏸' : '▶'}
-                  </button>
+                  {ytThumb ? (
+                    <div className="relative h-10 w-14 rounded-xl overflow-hidden shadow-xs border border-black/10 shrink-0">
+                      <img src={ytThumb} alt="Capa" className="h-full w-full object-cover" />
+                      <button
+                        onClick={() =>
+                          dispararAudioNaTransmissao(() => {
+                            tocar(track);
+                          })
+                        }
+                        className={`absolute inset-0 flex items-center justify-center bg-black/40 hover:bg-black/60 text-white font-bold transition active:scale-90 ${
+                          estaTocandoEsta ? 'bg-red-600/80 text-white' : ''
+                        }`}
+                        title={estaTocandoEsta ? 'Pausar louvor' : 'Tocar louvor'}
+                      >
+                        {estaTocandoEsta ? '⏸' : '▶'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        dispararAudioNaTransmissao(() => {
+                          tocar(track);
+                        })
+                      }
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-base font-bold text-white shadow-sm transition active:scale-90 ${
+                        estaTocandoEsta ? 'bg-[#b3261e]' : 'bg-[#2b2118]'
+                      }`}
+                      title={estaTocandoEsta ? 'Pausar louvor' : 'Tocar louvor'}
+                    >
+                      {estaTocandoEsta ? '⏸' : '▶'}
+                    </button>
+                  )}
+
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-bold text-[#2b2118]">{track.title}</p>
+                    <p className="truncate text-xs font-bold text-[#2b2118] flex items-center gap-1.5">
+                      <span className="truncate">{track.title}</span>
+                      {isYt && (
+                        <span className="shrink-0 rounded-md bg-red-600 px-1 py-0.2 text-[8px] font-black text-white">
+                          YouTube
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[10px] text-[#7a6a52]">
-                      {track.source === 'link' ? '🌐 Link' : '📁 Arquivo'}
+                      {isYt ? '🔴 YouTube' : track.source === 'link' ? '🌐 Link' : '📁 Arquivo'}
                     </p>
                   </div>
                 </div>

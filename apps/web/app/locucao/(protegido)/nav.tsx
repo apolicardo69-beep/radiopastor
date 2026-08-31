@@ -33,6 +33,9 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     anterior,
     ouvintesOnline,
     setModalOuvintesAberto,
+    isYouTube,
+    mostrarVideoYoutube,
+    setMostrarVideoYoutube,
   } = usePlayer();
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
@@ -193,20 +196,44 @@ export default function LocucaoNav({ nome }: { nome: string }) {
         >
           <div className="flex items-center justify-between gap-3 rounded-3xl bg-[#2b2118] p-3 text-white shadow-2xl border border-[#d9c9a8]/30 backdrop-blur-md">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <span className={`text-xl ${estaTocando ? 'animate-spin' : ''}`}>💿</span>
+              <span className={`text-xl ${estaTocando ? 'animate-spin' : ''}`}>
+                {isYouTube ? '🔴' : '💿'}
+              </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-black text-[#f7f1e6]">
-                  {musicaTocando.title}
+                <p className="truncate text-xs font-black text-[#f7f1e6] flex items-center gap-1.5">
+                  <span className="truncate">{musicaTocando.title}</span>
+                  {isYouTube && (
+                    <span className="shrink-0 rounded-md bg-red-600 px-1.5 py-0.2 text-[9px] font-black text-white">
+                      YouTube
+                    </span>
+                  )}
                 </p>
                 <p className="truncate text-[10px] text-[#d9c9a8]">
                   {playlistAtiva
                     ? `📋 ${playlistAtiva.name} (${indiceFila + 1}/${filaPlaylist.length})`
+                    : isYouTube
+                    ? '🔴 Vídeo do YouTube'
                     : '🎵 Som no Ar'}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              {isYouTube && (
+                <button
+                  onClick={() => setMostrarVideoYoutube((ant) => !ant)}
+                  className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[10px] font-bold transition active:scale-95 ${
+                    mostrarVideoYoutube
+                      ? 'bg-red-600 text-white'
+                      : 'bg-white/10 text-white/80 hover:bg-white/20'
+                  }`}
+                  title={mostrarVideoYoutube ? 'Ocultar vídeo' : 'Exibir vídeo na tela'}
+                >
+                  <span>📺</span>
+                  <span>{mostrarVideoYoutube ? 'Ocultar' : 'Vídeo'}</span>
+                </button>
+              )}
+
               {playlistAtiva && filaPlaylist.length > 1 && (
                 <button
                   onClick={anterior}
