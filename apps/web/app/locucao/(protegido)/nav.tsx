@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 import { usePlayer } from '@/lib/PlayerContext';
+import ModalOuvintes from '@/components/ModalOuvintes';
 
 const ITENS = [
   { href: '/locucao', label: 'Estúdio', icone: '🎙️' },
@@ -30,6 +31,8 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     pararPlaylist,
     proxima,
     anterior,
+    ouvintesOnline,
+    setModalOuvintesAberto,
   } = usePlayer();
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
@@ -128,6 +131,19 @@ export default function LocucaoNav({ nome }: { nome: string }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Marcador Ao Vivo de Ouvintes Conectados (visível em todas as telas da locução) */}
+            <button
+              onClick={() => setModalOuvintesAberto(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-xs font-bold bg-[#eaf3ec] text-[#2f6b4f] hover:bg-[#d8edd9] transition active:scale-95 shadow-xs border border-[#2f6b4f]/20 cursor-pointer"
+              title="Clique para ver os ouvintes conectados agora"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#2f6b4f] opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#2f6b4f]" />
+              </span>
+              <span>👥 {ouvintesOnline.length} {ouvintesOnline.length === 1 ? 'Ouvinte' : 'Ouvintes'}</span>
+            </button>
+
             {/* Só mostra botão de instalar se realmente houver suporte a 1-clique do navegador e não estiver instalado */}
             {!jaInstalado && promptInstalacao && (
               <button
@@ -234,6 +250,9 @@ export default function LocucaoNav({ nome }: { nome: string }) {
           </div>
         </aside>
       )}
+
+      {/* Modal global de ouvintes conectados */}
+      <ModalOuvintes />
     </>
   );
 }

@@ -112,4 +112,13 @@ export interface DailyMessage {
   updated_at: string;
 }
 
+// Presença em tempo real dos ouvintes conectados
+export interface OuvinteOnline {
+  client_id: string;
+  name: string;
+  whatsapp?: string;
+  online_at?: string;
+  is_playing?: boolean;
+}
+
 

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Track, Playlist } from '@/lib/types';
+import type { Track, Playlist, OuvinteOnline } from '@/lib/types';
 
 interface PlayerState {
   musicaTocando: Track | null;
@@ -20,6 +20,34 @@ interface PlayerState {
   audioRef: React.RefObject<HTMLAudioElement | null>;
   volumeMusica: number;
   setVolumeMusica: (v: number) => void;
+  ouvintesOnline: OuvinteOnline[];
+  modalOuvintesAberto: boolean;
+  setModalOuvintesAberto: (aberto: boolean) => void;
+}
+
+function parsePresenceState(state: Record<string, any[]>): OuvinteOnline[] {
+  const lista: OuvinteOnline[] = [];
+  const idsVistos = new Set<string>();
+
+  for (const key in state) {
+    const presences = state[key] as any[];
+    if (presences && presences.length > 0) {
+      for (const p of presences) {
+        const clientId = p.client_id || key;
+        if (!idsVistos.has(clientId)) {
+          idsVistos.add(clientId);
+          lista.push({
+            client_id: clientId,
+            name: p.name || 'Ouvinte',
+            whatsapp: p.whatsapp || undefined,
+            online_at: p.online_at || undefined,
+            is_playing: Boolean(p.is_playing),
+          });
+        }
+      }
+    }
+  }
+  return lista;
 }
 
 const PlayerContext = createContext<PlayerState | null>(null);
@@ -40,6 +68,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [filaPlaylist, setFilaPlaylist] = useState<Track[]>([]);
   const [indiceFila, setIndiceFila] = useState(0);
   const [volumeMusica, setVolumeMusica] = useState(0.8);
+  const [ouvintesOnline, setOuvintesOnline] = useState<OuvinteOnline[]>([]);
+  const [modalOuvintesAberto, setModalOuvintesAberto] = useState(false);
 
   function getTrackUrl(track: Track): string {
     if (track.source === 'link' && track.source_url) return track.source_url;
@@ -165,12 +195,34 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     return () => audioEl.removeEventListener('ended', handleEnded);
   }, [filaPlaylist, indiceFila, tocarTrackInterno]);
 
-  // Atualizar volume quando muda
+  // Monitorar ouvintes online em tempo real de forma contínua em todo o painel
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = Math.min(1, Math.max(0, volumeMusica));
-    }
-  }, [volumeMusica]);
+    const presenceChannel = supabase.channel('radio-presence-ouvintes');
+
+    const atualizarPresenca = () => {
+      try {
+        const state = presenceChannel.presenceState();
+        setOuvintesOnline(parsePresenceState(state));
+      } catch (err) {
+        console.warn('Erro ao ler estado de presença:', err);
+      }
+    };
+
+    presenceChannel
+      .on('presence', { event: 'sync' }, atualizarPresenca)
+      .on('presence', { event: 'join' }, atualizarPresenca)
+      .on('presence', { event: 'leave' }, atualizarPresenca)
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          atualizarPresenca();
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(presenceChannel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <PlayerContext.Provider
@@ -190,6 +242,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         audioRef,
         volumeMusica,
         setVolumeMusica,
+        ouvintesOnline,
+        modalOuvintesAberto,
+        setModalOuvintesAberto,
       }}
     >
       {children}

@@ -160,12 +160,20 @@ function CardPatrocinador({
 
 function getClientId() {
   if (typeof window === 'undefined') return '';
-  let id = localStorage.getItem('graca_paz_client_id');
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem('graca_paz_client_id', id);
+  try {
+    let id = localStorage.getItem('graca_paz_client_id');
+    if (!id) {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        id = crypto.randomUUID();
+      } else {
+        id = 'cli_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 11);
+      }
+      localStorage.setItem('graca_paz_client_id', id);
+    }
+    return id;
+  } catch {
+    return 'cli_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 11);
   }
-  return id;
 }
 
 export default function ListenerPage() {
@@ -217,21 +225,52 @@ export default function ListenerPage() {
     if (savedWhatsapp) setWhatsapp(savedWhatsapp);
 
     // Canal de Presença de Ouvintes ao Vivo
+    const clientId = getClientId();
     const presenceChannel = supabase.channel('radio-presence-ouvintes', {
-      config: { presence: { key: getClientId() } },
+      config: { presence: { key: clientId } },
     });
     presenceChannelRef.current = presenceChannel;
 
+    const trackPresence = async (playingState?: boolean) => {
+      try {
+        const isTocando = typeof playingState === 'boolean' ? playingState : playing;
+        let cName = 'Ouvinte';
+        let cWa = '';
+        try {
+          cName = localStorage.getItem('graca_paz_user_name') || name || 'Ouvinte';
+          cWa = localStorage.getItem('graca_paz_user_whatsapp') || whatsapp || '';
+        } catch {}
+
+        await presenceChannel.track({
+          client_id: clientId,
+          name: cName.trim() || 'Ouvinte',
+          whatsapp: cWa.trim(),
+          online_at: new Date().toISOString(),
+          is_playing: isTocando,
+        });
+      } catch (err) {
+        console.warn('Erro ao atualizar presença do ouvinte:', err);
+      }
+    };
+
     presenceChannel.subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-        await presenceChannel.track({
-          client_id: getClientId(),
-          name: savedName.trim() || 'Ouvinte',
-          whatsapp: savedWhatsapp.trim(),
-          online_at: new Date().toISOString(),
-        });
+        await trackPresence();
       }
     });
+
+    // Heartbeat a cada 25 segundos para manter a presença viva mesmo com oscilações de rede
+    const heartbeatInterval = setInterval(() => {
+      trackPresence();
+    }, 25000);
+
+    // Re-track imediato quando o ouvinte volta para a aba da rádio
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        trackPresence();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Verificar se já está rodando como app instalado (standalone)
     if (typeof window !== 'undefined') {
@@ -386,6 +425,8 @@ export default function ListenerPage() {
       if (presenceChannelRef.current) {
         supabase.removeChannel(presenceChannelRef.current);
       }
+      clearInterval(heartbeatInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       clearInterval(pollInterval);
       clearInterval(sponsorInterval);
       if (timerGravacaoRef.current) clearInterval(timerGravacaoRef.current);
@@ -417,6 +458,7 @@ export default function ListenerPage() {
         name: novoNome.trim() || 'Ouvinte',
         whatsapp: whatsapp.trim(),
         online_at: new Date().toISOString(),
+        is_playing: playing,
       });
     }
   }
@@ -432,6 +474,7 @@ export default function ListenerPage() {
         name: name.trim() || 'Ouvinte',
         whatsapp: novoWhatsapp.trim(),
         online_at: new Date().toISOString(),
+        is_playing: playing,
       });
     }
   }
@@ -444,6 +487,15 @@ export default function ListenerPage() {
       audio.pause();
       setPlaying(false);
       setCarregandoAudio(false);
+      if (presenceChannelRef.current) {
+        presenceChannelRef.current.track({
+          client_id: getClientId(),
+          name: name.trim() || 'Ouvinte',
+          whatsapp: whatsapp.trim(),
+          online_at: new Date().toISOString(),
+          is_playing: false,
+        });
+      }
     } else {
       setCarregandoAudio(true);
       // Forçar recarga para pegar a ponta do stream ao vivo
@@ -454,6 +506,15 @@ export default function ListenerPage() {
         .then(() => {
           setPlaying(true);
           setCarregandoAudio(false);
+          if (presenceChannelRef.current) {
+            presenceChannelRef.current.track({
+              client_id: getClientId(),
+              name: name.trim() || 'Ouvinte',
+              whatsapp: whatsapp.trim(),
+              online_at: new Date().toISOString(),
+              is_playing: true,
+            });
+          }
         })
         .catch((err) => {
           console.error('Erro ao reproduzir stream:', err);
