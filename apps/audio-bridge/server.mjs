@@ -271,10 +271,44 @@ server.listen(PORT, '0.0.0.0', () => {
   log(`audio-bridge ouvindo em http/ws://0.0.0.0:${PORT}`);
 });
 
+// ---------------------------------------------------------
+// SOBRE A RECONEXÃO DO LOCUTOR (por que existe `meuLugar`)
+// ---------------------------------------------------------
+// O bridge sempre soube trocar uma conexão por outra: quando um pastor chega,
+// a conexão anterior é derrubada com o código 4002 e a nova toma o lugar. Isso
+// é exatamente o que acontece quando o celular perde a internet e o app volta
+// sozinho — o socket antigo virou zumbi e o novo precisa substituí-lo.
+//
+// O problema é que derrubar o socket antigo faz o 'close' DELE disparar, e o
+// 'close' antigo não tinha como saber que já havia sido substituído: ele
+// executava a limpeza de fim de transmissão em cima da conexão nova. Na
+// prática, na ordem em que as coisas acontecem:
+//
+//   1. chega o pastor novo, derruba o socket antigo
+//   2. session.pastor passa a apontar pro novo
+//   3. o 'close' do antigo finalmente dispara e faz session.pastor = null,
+//      stopFfmpeg() e is_live = false
+//   4. o pastor novo manda áudio, o handler procura session.pastor, não acha
+//      e descarta tudo em silêncio
+//
+// Resultado: o app diz "AO VIVO", o medidor do microfone se mexe, e não sai
+// absolutamente nada no ar. Silêncio no meio do culto, sem nenhum erro na
+// tela — o tipo de falha mais difícil de diagnosticar que existe.
+//
+// A correção é dar a cada conexão um crachá (`meuLugar`, o próprio objeto que
+// foi guardado em session) e, antes de limpar qualquer coisa, conferir se o
+// crachá ainda é o que está em session. Se não for, esta conexão já foi
+// substituída e não tem mais nada pra limpar — quem assumiu cuida do resto.
 wss.on('connection', (ws) => {
   let role = null;
   let guestToken = null;
   let gotFirstChunk = false;
+  // O objeto que esta conexão ocupa dentro de `session`. Serve de identidade:
+  // comparar por referência responde "eu ainda sou a conexão da vez?".
+  let meuLugar = null;
+
+  const aindaSouOAtual = () =>
+    meuLugar !== null && (role === 'pastor' ? session.pastor : session.guest) === meuLugar;
 
   ws.once('message', async (raw) => {
     let msg;
@@ -299,21 +333,38 @@ wss.on('connection', (ws) => {
     }
 
     if (role === 'pastor') {
-      if (session.pastor) session.pastor.ws.close(4002, 'substituído por nova conexão');
-      session.pastor = { ws, initChunk: null };
+      const anterior = session.pastor;
+      meuLugar = { ws, initChunk: null };
+      // A ordem importa: primeiro o novo assume o lugar, só então o antigo é
+      // derrubado. Assim, quando o 'close' do antigo disparar, ele já vai
+      // encontrar o crachá novo em session e vai saber que não deve limpar
+      // nada. O contrário abriria uma janela onde session.pastor está vazio.
+      session.pastor = meuLugar;
+      if (anterior) {
+        log('pastor reconectou — substituindo a conexão anterior');
+        anterior.ws.close(4002, 'substituído por nova conexão');
+      }
       await setBroadcastState({ is_live: true });
     } else {
-      if (session.guest) session.guest.ws.close(4002, 'substituído por nova conexão');
-      session.guest = { ws, initChunk: null, token: guestToken };
+      const anterior = session.guest;
+      meuLugar = { ws, initChunk: null, token: guestToken };
+      session.guest = meuLugar;
+      if (anterior) {
+        log('convidado reconectou — substituindo a conexão anterior');
+        anterior.ws.close(4002, 'substituído por nova conexão');
+      }
     }
 
     ws.on('message', (data) => {
       if (typeof data === 'string') return; // só nos importa áudio binário aqui
-      const bucket = role === 'pastor' ? session.pastor : session.guest;
-      if (!bucket) return;
+      // Um socket zumbi pode voltar a si e mandar áudio depois de já ter sido
+      // substituído. Se isso entrasse no ffmpeg, os pedaços de WebM de duas
+      // conexões diferentes se misturariam no mesmo cano e o áudio sairia
+      // embaralhado — pior do que não sair nada.
+      if (!aindaSouOAtual()) return;
       if (!gotFirstChunk) {
         gotFirstChunk = true;
-        bucket.initChunk = data;
+        meuLugar.initChunk = data;
         // só reconstrói o ffmpeg quando já temos o cabeçalho de quem entrou
         rebuildFfmpeg();
       } else {
@@ -322,6 +373,15 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', async () => {
+      // Esta conexão já foi substituída por outra (reconexão do celular, ou o
+      // locutor abrindo o Estúdio num segundo aparelho). Quem assumiu está
+      // transmitindo agora — encerrar a transmissão aqui derrubaria justamente
+      // a conexão boa.
+      if (!aindaSouOAtual()) {
+        log(`${role} antigo desconectou (já substituído) — mantendo a transmissão no ar`);
+        return;
+      }
+
       log(`${role} desconectou`);
       if (role === 'pastor') {
         session.pastor = null;

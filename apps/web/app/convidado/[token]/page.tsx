@@ -18,7 +18,8 @@ export default function ConvidadoPage() {
   const [guest, setGuest] = useState<GuestInfo | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [ouvindo, setOuvindo] = useState(false);
-  const { status, erro, iniciar, parar, nivelMic } = useAudioBroadcast('guest');
+  const { status, erro, iniciar, parar, nivelMic, tentativaReconexao } =
+    useAudioBroadcast('guest');
 
   useEffect(() => {
     supabase
@@ -58,6 +59,10 @@ export default function ConvidadoPage() {
   }
 
   const aoVivo = status === 'ao_vivo';
+  const reconectando = status === 'reconectando';
+  // Reconectando ainda é estar em transmissão: o convidado precisa poder
+  // desistir e sair sem esperar a reconexão terminar.
+  const emTransmissao = aoVivo || reconectando;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-[#f7f1e6] px-4 py-8 text-center text-[#2b2118]">
@@ -83,22 +88,32 @@ export default function ConvidadoPage() {
 
       {/* Card do Microfone do Convidado */}
       <div className="w-full max-w-xs rounded-3xl bg-white p-6 shadow-md">
-        <p className="mb-4 text-xs font-bold text-[#7a6a52]">
+        <p
+          className={`mb-4 text-xs font-bold ${
+            reconectando ? 'text-[#8a6d3b]' : 'text-[#7a6a52]'
+          }`}
+        >
           {aoVivo
             ? '🔴 VOCÊ ESTÁ AO VIVO COM O PASTOR!'
-            : 'Quando o pastor chamar, toque no botão para falar:'}
+            : reconectando
+              ? `A conexão oscilou. Reconectando${
+                  tentativaReconexao > 1 ? ` (${tentativaReconexao}ª tentativa)` : ''
+                }... pode continuar aí, não precisa fazer nada.`
+              : 'Quando o pastor chamar, toque no botão para falar:'}
         </p>
         <button
-          onClick={aoVivo ? parar : entrarAoVivo}
+          onClick={emTransmissao ? parar : entrarAoVivo}
           disabled={status === 'pedindo_microfone' || status === 'conectando'}
           className={`mx-auto flex h-36 w-36 flex-col items-center justify-center rounded-full text-sm font-extrabold text-white shadow-xl transition active:scale-95 disabled:opacity-60 ${
             aoVivo
               ? 'animate-pulse bg-[#b3261e] ring-8 ring-[#b3261e]/20'
-              : 'bg-[#2f6b4f] ring-8 ring-[#2f6b4f]/15'
+              : reconectando
+                ? 'animate-pulse bg-[#8a6d3b] ring-8 ring-[#8a6d3b]/20'
+                : 'bg-[#2f6b4f] ring-8 ring-[#2f6b4f]/15'
           }`}
         >
-          <span className="text-3xl">{aoVivo ? '🛑' : '🎙️'}</span>
-          <span className="mt-1">{aoVivo ? 'Sair do Ar' : 'Entrar ao Vivo'}</span>
+          <span className="text-3xl">{emTransmissao ? '🛑' : '🎙️'}</span>
+          <span className="mt-1">{emTransmissao ? 'Sair do Ar' : 'Entrar ao Vivo'}</span>
         </button>
 
         {aoVivo && (

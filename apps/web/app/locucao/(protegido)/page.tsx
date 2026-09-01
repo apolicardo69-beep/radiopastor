@@ -14,6 +14,7 @@ const TEXTO_STATUS: Record<string, string> = {
   pedindo_microfone: 'Solicitando microfone...',
   conectando: 'Conectando ao estúdio...',
   ao_vivo: '🔴 VOCÊ ESTÁ AO VIVO NA RÁDIO',
+  reconectando: 'Reconectando... a playlist está no ar',
   erro: 'Não foi possível ir ao ar',
 };
 
@@ -58,6 +59,7 @@ export default function LocucaoHome() {
     parar,
     volumeMic,
     nivelMic,
+    tentativaReconexao,
     alterarVolumeMic,
     alterarVolumeMusica,
     conectarElementoAudio,
@@ -174,19 +176,30 @@ export default function LocucaoHome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function alternarAoVivo() {
-    if (status === 'ao_vivo') {
-      parar();
-      return;
-    }
+  // Passamos uma FUNÇÃO, não o token pronto. O token da sessão do Supabase
+  // vence em cerca de uma hora; num culto longo, uma reconexão depois desse
+  // prazo tentaria usar um token vencido e seria recusada pra sempre. Como o
+  // hook chama esta função a cada tentativa, o getSession() renova sozinho e
+  // a reconexão continua funcionando na terceira hora igual na primeira.
+  async function obterTokenDoPastor(): Promise<string | null> {
     const {
       data: { session },
     } = await supabase.auth.getSession();
-    if (!session) {
+    return session?.access_token ?? null;
+  }
+
+  async function alternarAoVivo() {
+    // Reconectando também conta como "em transmissão": o pastor precisa
+    // conseguir desistir e sair do ar sem esperar a reconexão terminar.
+    if (status === 'ao_vivo' || status === 'reconectando') {
+      parar();
+      return;
+    }
+    if (!(await obterTokenDoPastor())) {
       setErroMusica('Você precisa estar logado como pastor para ir ao ar.');
       return;
     }
-    iniciar(session.access_token, audioRef.current, audioVinhetaRef.current);
+    iniciar(obterTokenDoPastor, audioRef.current, audioVinhetaRef.current);
   }
 
   async function dispararAudioNaTransmissao(acao: () => void) {
@@ -198,13 +211,8 @@ export default function LocucaoHome() {
     }
 
     // Se ainda não estiver ao vivo, inicia a transmissão para os ouvintes escutarem
-    if (status === 'parado') {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        iniciar(session.access_token, audioRef.current, audioVinhetaRef.current);
-      }
+    if (status === 'parado' && (await obterTokenDoPastor())) {
+      iniciar(obterTokenDoPastor, audioRef.current, audioVinhetaRef.current);
     }
   }
 
@@ -239,13 +247,8 @@ export default function LocucaoHome() {
     conectarElementoVinheta(audioEl);
 
     // Se estiver fora do ar, mas o pastor quiser transmitir na hora:
-    if (status === 'parado') {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        iniciar(session.access_token, audioRef.current, audioEl);
-      }
+    if (status === 'parado' && (await obterTokenDoPastor())) {
+      iniciar(obterTokenDoPastor, audioRef.current, audioEl);
     }
 
     audioEl
@@ -348,7 +351,15 @@ export default function LocucaoHome() {
   }
 
   const noAr = status === 'ao_vivo';
+  const reconectando = status === 'reconectando';
+  // "Encerrar" continua clicável durante a reconexão — só as fases em que não
+  // há o que encerrar ainda é que travam o botão.
+  const emTransmissao = noAr || reconectando;
   const ocupado = status === 'pedindo_microfone' || status === 'conectando';
+
+  const textoStatus = reconectando
+    ? `Reconectando${tentativaReconexao > 1 ? ` (${tentativaReconexao}ª tentativa)` : ''}... a playlist está no ar`
+    : TEXTO_STATUS[status];
 
   return (
     <div className="flex flex-col gap-4 pb-16">
@@ -485,11 +496,19 @@ export default function LocucaoHome() {
           <div className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider bg-[#f0e6d2]">
             <span
               className={`h-2.5 w-2.5 rounded-full ${
-                noAr ? 'animate-ping bg-[#b3261e]' : 'bg-[#7a6a52]'
+                noAr
+                  ? 'animate-ping bg-[#b3261e]'
+                  : reconectando
+                    ? 'animate-pulse bg-[#8a6d3b]'
+                    : 'bg-[#7a6a52]'
               }`}
             />
-            <span className={noAr ? 'text-[#b3261e]' : 'text-[#7a6a52]'}>
-              {TEXTO_STATUS[status]}
+            <span
+              className={
+                noAr ? 'text-[#b3261e]' : reconectando ? 'text-[#8a6d3b]' : 'text-[#7a6a52]'
+              }
+            >
+              {textoStatus}
             </span>
           </div>
 
@@ -515,11 +534,13 @@ export default function LocucaoHome() {
             className={`relative flex h-36 w-36 flex-col items-center justify-center rounded-full text-base font-extrabold text-white shadow-xl transition active:scale-95 disabled:opacity-60 ${
               noAr
                 ? 'bg-[#b3261e] ring-8 ring-[#b3261e]/20 hover:bg-[#8f1e17]'
-                : 'bg-[#2f6b4f] ring-8 ring-[#2f6b4f]/15 hover:bg-[#255740]'
+                : reconectando
+                  ? 'animate-pulse bg-[#8a6d3b] ring-8 ring-[#8a6d3b]/20 hover:bg-[#6f5730]'
+                  : 'bg-[#2f6b4f] ring-8 ring-[#2f6b4f]/15 hover:bg-[#255740]'
             }`}
           >
-            <span className="text-3xl">{noAr ? '🛑' : '🎙️'}</span>
-            <span className="mt-1 text-sm">{noAr ? 'Encerrar' : 'Ir ao Ar'}</span>
+            <span className="text-3xl">{emTransmissao ? '🛑' : '🎙️'}</span>
+            <span className="mt-1 text-sm">{emTransmissao ? 'Encerrar' : 'Ir ao Ar'}</span>
           </button>
         </div>
 
@@ -553,8 +574,15 @@ export default function LocucaoHome() {
           </div>
         )}
 
+        {/* Durante a reconexão a mensagem é um aviso, não um erro: o sistema
+            está resolvendo sozinho. Vermelho aqui só assustaria o pastor no
+            meio do culto — o âmbar diz "aguenta aí" em vez de "deu ruim". */}
         {erroBroadcast && (
-          <p className="mt-4 rounded-xl bg-[#fbeaea] p-3 text-xs font-semibold text-[#b3261e]">
+          <p
+            className={`mt-4 rounded-xl p-3 text-xs font-semibold ${
+              reconectando ? 'bg-[#f7efdd] text-[#8a6d3b]' : 'bg-[#fbeaea] text-[#b3261e]'
+            }`}
+          >
             {erroBroadcast}
           </p>
         )}
