@@ -1,5 +1,25 @@
 'use client';
 
+// Player compartilhado entre o Estúdio e as telas da locução.
+//
+// ---------------------------------------------------------------------------
+// MUDANÇA IMPORTANTE: o YouTube deixou de tocar dentro de um iframe
+// ---------------------------------------------------------------------------
+// Antes, faixa do YouTube tocava num iframe do próprio YouTube, controlado por
+// postMessage. Funcionava pro pastor ouvir — mas NUNCA chegava aos ouvintes,
+// e não era bug: nenhum navegador deixa uma página capturar o áudio de dentro
+// de um iframe de outro domínio. O mixer da transmissão usa a Web Audio API,
+// que só alcança elementos <audio> da própria página, então a música do
+// YouTube simplesmente não existia do ponto de vista do mixer.
+//
+// Agora toda faixa — arquivo enviado ou link do YouTube — toca no MESMO
+// elemento <audio>. No caso do YouTube, o áudio vem de /api/youtube/stream,
+// que extrai a faixa e serve pelo nosso próprio domínio. Como é o mesmo
+// elemento de sempre, o mixer captura sem precisar saber de onde veio.
+//
+// Consequência: não existe mais vídeo pra mostrar. O que era a janela do vídeo
+// virou uma tela com a capa e o título — o áudio é o que importa numa rádio.
+
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Track, Playlist, OuvinteOnline } from '@/lib/types';
@@ -28,6 +48,9 @@ interface PlayerState {
   youtubeVideoId: string | null;
   mostrarVideoYoutube: boolean;
   setMostrarVideoYoutube: (mostrar: boolean | ((ant: boolean) => boolean)) => void;
+  // Mensagem de erro quando uma faixa não consegue tocar — útil sobretudo no
+  // YouTube, onde a extração pode falhar por motivos fora do nosso controle.
+  erroFaixa: string | null;
 }
 
 function parsePresenceState(state: Record<string, any[]>): OuvinteOnline[] {
@@ -66,7 +89,6 @@ export function usePlayer() {
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ytIframeRef = useRef<HTMLIFrameElement | null>(null);
   const proximaRef = useRef<() => void>(() => {});
 
   const [musicaTocando, setMusicaTocando] = useState<Track | null>(null);
@@ -78,30 +100,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [ouvintesOnline, setOuvintesOnline] = useState<OuvinteOnline[]>([]);
   const [modalOuvintesAberto, setModalOuvintesAberto] = useState(false);
   const [mostrarVideoYoutube, setMostrarVideoYoutube] = useState(false);
+  const [erroFaixa, setErroFaixa] = useState<string | null>(null);
 
-  const youtubeVideoId = musicaTocando ? extractYouTubeVideoId(musicaTocando.source_url || '') : null;
+  const youtubeVideoId = musicaTocando
+    ? extractYouTubeVideoId(musicaTocando.source_url || '')
+    : null;
   const isYouTube = Boolean(musicaTocando?.source === 'link' && youtubeVideoId);
 
-  // Enviar comando para o iframe do YouTube via postMessage seguro
-  const sendYtCommand = useCallback((func: string, args: any[] = []) => {
-    try {
-      if (ytIframeRef.current?.contentWindow) {
-        ytIframeRef.current.contentWindow.postMessage(
-          JSON.stringify({
-            event: 'command',
-            func,
-            args,
-          }),
-          '*'
-        );
-      }
-    } catch (err) {
-      console.warn('Erro ao enviar comando postMessage para YouTube:', err);
-    }
-  }, []);
-
+  // Descobre o endereço de onde o áudio da faixa deve ser tocado.
+  //
+  // Link do YouTube passa pelo nosso endpoint, e não pela URL do YouTube: além
+  // de ser o que permite extrair só o áudio, isso mantém a requisição no mesmo
+  // domínio da página — condição pra Web Audio (o mixer) conseguir processar o
+  // som. Áudio de outro domínio sem CORS entra "sujo" e sai silêncio.
   function getTrackUrl(track: Track): string {
-    if (track.source === 'link' && track.source_url) return track.source_url;
+    if (track.source === 'link' && track.source_url) {
+      const ytId = extractYouTubeVideoId(track.source_url);
+      if (ytId) return `/api/youtube/stream?id=${ytId}`;
+      return track.source_url;
+    }
     if (track.storage_path) {
       const { data } = supabase.storage.from('musicas').getPublicUrl(track.storage_path);
       return data.publicUrl;
@@ -111,54 +128,51 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const tocarTrackInterno = useCallback(
     (track: Track) => {
-      const ytId = track.source === 'link' ? extractYouTubeVideoId(track.source_url || '') : null;
+      setErroFaixa(null);
 
-      if (ytId) {
-        // Pausar áudio convencional
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.removeAttribute('src');
-        }
+      const url = getTrackUrl(track);
+      const audioEl = audioRef.current;
+      if (!url || !audioEl) return;
 
-        setMusicaTocando(track);
-        setEstaTocando(true);
-
-        // Disparar play no iframe após montagem
-        setTimeout(() => {
-          sendYtCommand('playVideo');
-          sendYtCommand('setVolume', [Math.round(volumeMusica * 100)]);
-          sendYtCommand('unMute');
-        }, 300);
+      // crossOrigin só é necessário pro Storage do Supabase, que é outro
+      // domínio e manda CORS. O endpoint do YouTube é do mesmo domínio, então
+      // não precisa (e atrapalha se ficar sobrando de uma faixa anterior).
+      if (url.includes('supabase.co')) {
+        audioEl.crossOrigin = 'anonymous';
       } else {
-        // Pausar YouTube se estava tocando
-        sendYtCommand('pauseVideo');
-
-        const url = getTrackUrl(track);
-        if (!url || !audioRef.current) return;
-
-        const audioEl = audioRef.current;
-        if (url.includes('supabase.co')) {
-          audioEl.crossOrigin = 'anonymous';
-        } else {
-          audioEl.removeAttribute('crossOrigin');
-        }
-        audioEl.src = url;
-        audioEl.volume = Math.min(1, Math.max(0, volumeMusica));
-        audioEl.load();
-        audioEl
-          .play()
-          .then(() => {
-            setMusicaTocando(track);
-            setEstaTocando(true);
-          })
-          .catch((err) => {
-            console.error('Erro ao tocar áudio:', err);
-            setEstaTocando(false);
-          });
+        audioEl.removeAttribute('crossOrigin');
       }
+
+      audioEl.src = url;
+      audioEl.volume = Math.min(1, Math.max(0, volumeMusica));
+      audioEl.load();
+      audioEl
+        .play()
+        .then(() => {
+          setMusicaTocando(track);
+          setEstaTocando(true);
+        })
+        .catch((err) => {
+          console.error('Erro ao tocar áudio:', err);
+          setEstaTocando(false);
+          setMusicaTocando(track);
+          setErroFaixa(
+            track.source === 'link'
+              ? 'Não consegui tocar esta música do YouTube. Tente outra ou envie o arquivo.'
+              : 'Não consegui tocar este arquivo de áudio.'
+          );
+        });
     },
-    [sendYtCommand, volumeMusica]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [volumeMusica]
   );
+
+  const pausar = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setEstaTocando(false);
+  }, []);
 
   const tocar = useCallback(
     (track: Track) => {
@@ -173,29 +187,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setIndiceFila(0);
       tocarTrackInterno(track);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [musicaTocando, estaTocando, tocarTrackInterno]
+    [musicaTocando, estaTocando, pausar, tocarTrackInterno]
   );
 
-  const pausar = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    sendYtCommand('pauseVideo');
-    setEstaTocando(false);
-  }, [sendYtCommand]);
-
   const retomar = useCallback(() => {
-    if (isYouTube) {
-      sendYtCommand('playVideo');
-      setEstaTocando(true);
-    } else if (audioRef.current && musicaTocando) {
+    if (audioRef.current && musicaTocando) {
       audioRef.current
         .play()
         .then(() => setEstaTocando(true))
         .catch(() => {});
     }
-  }, [isYouTube, musicaTocando, sendYtCommand]);
+  }, [musicaTocando]);
 
   const tocarPlaylist = useCallback(
     (playlist: Playlist, tracks: Track[]) => {
@@ -210,13 +212,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const pararPlaylist = useCallback(() => {
     pausar();
-    sendYtCommand('stopVideo');
+    if (audioRef.current) audioRef.current.removeAttribute('src');
     setPlaylistAtiva(null);
     setFilaPlaylist([]);
     setIndiceFila(0);
     setMusicaTocando(null);
     setMostrarVideoYoutube(false);
-  }, [pausar, sendYtCommand]);
+    setErroFaixa(null);
+  }, [pausar]);
 
   const proxima = useCallback(() => {
     if (filaPlaylist.length === 0) return;
@@ -237,41 +240,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     tocarTrackInterno(filaPlaylist[novoIndice]);
   }, [filaPlaylist, indiceFila, tocarTrackInterno]);
 
-  // Mantém a ref de proxima atualizada para o callback do player YouTube
+  // Mantém a ref de proxima atualizada para os callbacks do elemento de áudio
   useEffect(() => {
     proximaRef.current = proxima;
   }, [proxima]);
 
-  // Escutar eventos do iframe do YouTube via postMessage
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      try {
-        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (!data) return;
-
-        // Estado do YouTube mudou
-        if (data.event === 'onStateChange' || data.info !== undefined) {
-          const state = typeof data.info === 'number' ? data.info : data.info?.playerState;
-          if (state === 1) {
-            // PLAYING
-            setEstaTocando(true);
-          } else if (state === 2) {
-            // PAUSED
-            setEstaTocando(false);
-          } else if (state === 0) {
-            // ENDED
-            setEstaTocando(false);
-            proximaRef.current?.();
-          }
-        }
-      } catch {}
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, []);
-
-  // Quando a música termina no elemento HTML audio, toca a próxima da playlist
+  // Quando a música termina, toca a próxima da playlist.
+  //
+  // O 'error' aqui é o que avisa quando a extração do YouTube falhou (link
+  // expirado, vídeo restrito, YouTube mudou alguma coisa). Sem ele, a playlist
+  // travaria numa faixa quebrada em silêncio, sem ninguém entender por quê.
   useEffect(() => {
     const audioEl = audioRef.current;
     if (!audioEl) return;
@@ -283,8 +261,22 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const handleError = () => {
+      if (!audioEl.src) return; // limpamos o src de propósito ao parar
+      setEstaTocando(false);
+      setErroFaixa('Não consegui carregar o áudio desta faixa.');
+      // Numa playlist, não deixa parada: segue pra próxima sozinho.
+      if (filaPlaylist.length > 0) {
+        setTimeout(() => proximaRef.current?.(), 1200);
+      }
+    };
+
     audioEl.addEventListener('ended', handleEnded);
-    return () => audioEl.removeEventListener('ended', handleEnded);
+    audioEl.addEventListener('error', handleError);
+    return () => {
+      audioEl.removeEventListener('ended', handleEnded);
+      audioEl.removeEventListener('error', handleError);
+    };
   }, [filaPlaylist]);
 
   // Atualizar volume quando muda
@@ -292,8 +284,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) {
       audioRef.current.volume = Math.min(1, Math.max(0, volumeMusica));
     }
-    sendYtCommand('setVolume', [Math.round(volumeMusica * 100)]);
-  }, [volumeMusica, sendYtCommand]);
+  }, [volumeMusica]);
 
   // Monitorar ouvintes online em tempo real de forma contínua em todo o painel
   useEffect(() => {
@@ -324,18 +315,27 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Suporte a reprodução em segundo plano (Background Audio) e controles na tela de bloqueio do celular
+  // Reprodução em segundo plano e controles na tela de bloqueio do celular
   useEffect(() => {
     if (typeof window === 'undefined' || !('mediaSession' in navigator)) return;
 
     if (musicaTocando) {
-      const isYt = Boolean(musicaTocando.source === 'link' && extractYouTubeVideoId(musicaTocando.source_url || ''));
-      const thumb = isYt && musicaTocando.source_url ? getYouTubeThumbnail(musicaTocando.source_url) : '/icons/icon-192x192.png';
+      const isYt = Boolean(
+        musicaTocando.source === 'link' && extractYouTubeVideoId(musicaTocando.source_url || '')
+      );
+      const thumb =
+        isYt && musicaTocando.source_url
+          ? getYouTubeThumbnail(musicaTocando.source_url)
+          : '/icons/icon-192x192.png';
 
       try {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: musicaTocando.title || 'Louvor ao Vivo',
-          artist: isYt ? 'YouTube · Rádio Graça & Paz' : (playlistAtiva ? playlistAtiva.name : 'Rádio Graça & Paz'),
+          artist: isYt
+            ? 'YouTube · Rádio Graça & Paz'
+            : playlistAtiva
+              ? playlistAtiva.name
+              : 'Rádio Graça & Paz',
           album: 'Estúdio de Transmissão',
           artwork: [
             { src: thumb, sizes: '96x96', type: 'image/png' },
@@ -401,78 +401,53 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         youtubeVideoId,
         mostrarVideoYoutube,
         setMostrarVideoYoutube,
+        erroFaixa,
       }}
     >
       {children}
-      {/* Audio element global — vive no layout, persiste entre navegações e em segundo plano */}
+
+      {/* Elemento de áudio único — vive no layout, persiste entre navegações e
+          em segundo plano. TODA faixa passa por aqui, arquivo ou YouTube, e é
+          daqui que o mixer da transmissão puxa o som. */}
       <audio ref={audioRef} playsInline preload="auto" />
 
-      {/* Player YouTube Seguro embutido */}
-      {isYouTube && youtubeVideoId && (
+      {/* Tela da faixa do YouTube. Não há mais vídeo: o áudio é extraído e
+          tocado no elemento acima, então mostramos a capa e o título. */}
+      {isYouTube && youtubeVideoId && mostrarVideoYoutube && (
         <div
-          id="youtube-player-container"
-          className={
-            mostrarVideoYoutube
-              ? 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in'
-              : 'fixed -bottom-[999px] -right-[999px] w-1 h-1 opacity-0 pointer-events-none overflow-hidden'
-          }
-          onClick={mostrarVideoYoutube ? () => setMostrarVideoYoutube(false) : undefined}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setMostrarVideoYoutube(false)}
         >
-          {mostrarVideoYoutube ? (
-            <div
-              className="relative w-full max-w-lg rounded-3xl bg-[#2b2118] p-4 shadow-2xl border border-[#d9c9a8] flex flex-col gap-3 animate-in zoom-in-95 duration-200"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between border-b border-[#d9c9a8]/30 pb-2">
-                <div className="min-w-0 flex-1 pr-2">
-                  <p className="text-[10px] font-black text-red-500 uppercase tracking-wider flex items-center gap-1">
-                    <span>🔴</span> YouTube no Ar
-                  </p>
-                  <p className="truncate text-xs font-bold text-white">
-                    {musicaTocando?.title || 'Vídeo do YouTube'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => setMostrarVideoYoutube(false)}
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white hover:bg-white/20 active:scale-95 cursor-pointer"
-                  title="Minimizar (o áudio continua tocando)"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Iframe seguro com sandbox anti-redirecionamento */}
-              <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-inner">
-                <iframe
-                  ref={ytIframeRef}
-                  src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=1`}
-                  title="YouTube Player"
-                  allow="autoplay; encrypted-media; picture-in-picture"
-                  sandbox="allow-scripts allow-same-origin allow-presentation"
-                  className="w-full h-full border-0"
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-[#d9c9a8] px-1">
-                <span>🎵 O áudio continua tocando mesmo se fechar a janela</span>
-                <button
-                  onClick={() => setMostrarVideoYoutube(false)}
-                  className="rounded-xl bg-white/10 px-3 py-1 text-xs font-bold text-white hover:bg-white/20 active:scale-95 cursor-pointer"
-                >
-                  Ocultar Tela
-                </button>
-              </div>
+          <div
+            className="relative w-full max-w-sm rounded-3xl border border-[#d9c9a8] bg-[#2b2118] p-4 shadow-2xl animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between border-b border-[#d9c9a8]/30 pb-2">
+              <p className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-red-500">
+                <span>🔴</span> YouTube no Ar
+              </p>
+              <button
+                onClick={() => setMostrarVideoYoutube(false)}
+                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white hover:bg-white/20 active:scale-95"
+                title="Fechar (o áudio continua tocando)"
+              >
+                ✕
+              </button>
             </div>
-          ) : (
-            <iframe
-              ref={ytIframeRef}
-              src={`https://www.youtube-nocookie.com/embed/${youtubeVideoId}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=0`}
-              title="YouTube Audio Player"
-              allow="autoplay; encrypted-media; picture-in-picture"
-              sandbox="allow-scripts allow-same-origin allow-presentation"
-              className="w-1 h-1 border-0"
+
+            <img
+              src={getYouTubeThumbnail(youtubeVideoId)}
+              alt=""
+              className="w-full rounded-2xl object-cover shadow-lg"
             />
-          )}
+
+            <p className="mt-3 truncate text-sm font-bold text-white">
+              {musicaTocando?.title || 'Música do YouTube'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-[#d9c9a8]">
+              🎵 O áudio está indo ao ar pelos ouvintes
+            </p>
+          </div>
         </div>
       )}
     </PlayerContext.Provider>
