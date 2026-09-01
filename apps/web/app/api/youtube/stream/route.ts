@@ -67,10 +67,37 @@ async function resolverUrlDoAudio(videoId: string): Promise<{ url: string; tipo:
   }
 
   const yt = await getInnertube();
-  const info = await yt.getBasicInfo(videoId);
 
-  if (!info.streaming_data) {
-    throw new Error('Este vídeo não disponibiliza áudio para reprodução.');
+  // O YouTube costuma NÃO devolver os dados de streaming quando a consulta vem
+  // como "site no navegador" a partir de um servidor de nuvem: ele responde
+  // sem erro, só sem as faixas. Os clientes de aplicativo (iPhone/Android) em
+  // geral não passam por essa verificação, então tentamos nessa ordem e
+  // paramos no primeiro que devolver o áudio.
+  const CLIENTES = ['IOS', 'ANDROID', 'WEB'] as const;
+  type ClienteAceito = Parameters<typeof yt.getBasicInfo>[1];
+
+  let info: Awaited<ReturnType<typeof yt.getBasicInfo>> | null = null;
+  const tentativas: string[] = [];
+
+  for (const cliente of CLIENTES) {
+    try {
+      const resultado = await yt.getBasicInfo(videoId, cliente as unknown as ClienteAceito);
+      if (resultado?.streaming_data) {
+        info = resultado;
+        console.log('[YOUTUBE STREAM]', videoId, 'resolvido pelo cliente', cliente);
+        break;
+      }
+      tentativas.push(cliente + ': sem dados de streaming');
+    } catch (e) {
+      tentativas.push(cliente + ': ' + (e instanceof Error ? e.message : 'falhou'));
+    }
+  }
+
+  if (!info?.streaming_data) {
+    console.error('[YOUTUBE STREAM]', videoId, 'nenhum cliente funcionou —', tentativas.join(' | '));
+    throw new Error(
+      'O YouTube não entregou o áudio deste vídeo (' + tentativas.join('; ') + ').'
+    );
   }
 
   // Só formatos de áudio puro (sem vídeo junto), do melhor bitrate pro pior.
