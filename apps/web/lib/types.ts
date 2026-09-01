@@ -107,6 +107,10 @@ export interface JingleSlot {
 export interface DailyMessage {
   id: 1;
   content: string | null;
+  // Gravação de voz da palavra do dia (0007_daily_message_audio.sql).
+  // Fica no bucket "mensagens-audio", sob o prefixo "palavra-do-pastor/".
+  // Texto e áudio são independentes: pode haver só um, ou os dois.
+  audio_storage_path: string | null;
   active: boolean;
   author_name: string | null;
   updated_at: string;

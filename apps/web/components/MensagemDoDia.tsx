@@ -3,17 +3,20 @@
 // Card da "Palavra do Pastor" — fica fixado no topo do bate-papo, no app do
 // OUVINTE. Some sozinho quando o pastor desliga o interruptor no Estúdio.
 //
-// É de propósito autossuficiente: busca os próprios dados e escuta as
-// próprias mudanças, então integrar é só colocar <MensagemDoDia /> como
-// primeiro filho do bloco de bate-papo, sem passar nenhuma prop nem mexer
-// no estado da página que já existe.
+// Mostra o áudio gravado, o texto escrito, ou os dois — o pastor decide lá no
+// Estúdio. Se não houver nem áudio nem texto, o componente não renderiza nada
+// e o bate-papo fica exatamente como é hoje.
 //
-// Enquanto não há mensagem ativa (ou o texto está vazio), o componente não
-// renderiza NADA — o bate-papo fica exatamente como é hoje.
+// É de propósito autossuficiente: busca os próprios dados e escuta as próprias
+// mudanças, então integrar é só colocar <MensagemDoDia /> como primeiro filho
+// do bloco de bate-papo, sem passar prop nenhuma.
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { DailyMessage } from '@/lib/types';
+
+// Mesmo bucket do áudio do bate-papo.
+const BUCKET_AUDIO = 'mensagens-audio';
 
 function formatarQuando(iso: string): string {
   const data = new Date(iso);
@@ -66,8 +69,16 @@ export default function MensagemDoDia() {
     };
   }, []);
 
+  function urlDoAudio(path: string): string {
+    const supabase = createClient();
+    const { data } = supabase.storage.from(BUCKET_AUDIO).getPublicUrl(path);
+    return data.publicUrl;
+  }
+
   const texto = mensagem?.content?.trim() ?? '';
-  if (!mensagem?.active || !texto) return null;
+  const audio = mensagem?.audio_storage_path ?? null;
+
+  if (!mensagem?.active || (!texto && !audio)) return null;
 
   return (
     <div className="mb-3 overflow-hidden rounded-2xl border border-[#d4af37]/70 bg-gradient-to-br from-[#2b2118] via-[#241b18] to-[#2b2118] shadow-lg">
@@ -81,9 +92,24 @@ export default function MensagemDoDia() {
       </div>
 
       <div className="px-3.5 py-3">
-        <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#f3e5c8]">
-          {texto}
-        </p>
+        {audio && (
+          <div className="mb-2">
+            <p className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold text-[#d9c9a8]">
+              <span>🎙️</span> Ouça a palavra de hoje
+            </p>
+            <audio
+              controls
+              src={urlDoAudio(audio)}
+              preload="metadata"
+              className="h-9 w-full rounded-lg"
+            />
+          </div>
+        )}
+
+        {texto && (
+          <p className="whitespace-pre-line text-[13px] leading-relaxed text-[#f3e5c8]">{texto}</p>
+        )}
+
         <p className="mt-2 text-[10px] text-[#d9c9a8]/70">
           {mensagem.author_name ? `${mensagem.author_name} · ` : ''}
           {formatarQuando(mensagem.updated_at)}
