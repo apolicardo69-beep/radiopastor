@@ -218,21 +218,22 @@ function PreviaCard({
   whatsapp,
   logoUrl,
   arteUrl,
+  // Na lista de cadastrados o card aparece sozinho, sem a moldura bege nem o
+  // rótulo "Prévia" — ali ele não é prévia de nada, é o anúncio que já está
+  // no ar.
+  semMoldura = false,
 }: {
   nome: string;
   frase: string;
   whatsapp: string;
   logoUrl: string | null;
   arteUrl: string | null;
+  semMoldura?: boolean;
 }) {
   const hasWa = !!whatsapp.replace(/\D/g, '');
 
-  return (
-    <div className="rounded-2xl border border-[#e0c98a]/80 bg-[#fbf6ec] p-3 shadow-inner">
-      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#8a6d3b]">
-        👁️ Prévia do Card (como aparecerá no app dos ouvintes)
-      </p>
-
+  const miolo = (
+    <>
       {arteUrl ? (
         <div className="relative min-h-[120px] overflow-hidden rounded-2xl border border-[#d9c9a8] shadow-sm">
           <img
@@ -312,6 +313,17 @@ function PreviaCard({
           </div>
         </div>
       )}
+    </>
+  );
+
+  if (semMoldura) return miolo;
+
+  return (
+    <div className="rounded-2xl border border-[#e0c98a]/80 bg-[#fbf6ec] p-3 shadow-inner">
+      <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-[#8a6d3b]">
+        👁️ Prévia do Card (como aparecerá no app dos ouvintes)
+      </p>
+      {miolo}
     </div>
   );
 }
@@ -844,63 +856,51 @@ export default function PatrocinadoresPage() {
             return (
               <li
                 key={s.id}
-                className={`flex items-center justify-between gap-3 rounded-2xl p-3.5 border transition ${
+                className={`rounded-2xl border p-3 transition ${
                   s.active
                     ? 'bg-[#f0e6d2]/60 border-[#d9c9a8]/40'
                     : 'bg-[#fef2f2]/80 border-[#e8b4b4]/50'
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  {logoUrl ? (
-                    <img
-                      src={logoUrl}
-                      alt={s.name}
-                      className={`h-12 w-12 shrink-0 rounded-xl object-contain bg-white p-1 border shadow-xs ${
-                        s.active ? 'border-[#d9c9a8]' : 'border-[#e8b4b4] opacity-60 grayscale'
-                      }`}
-                    />
-                  ) : (
-                    <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-base text-white shadow-xs ${
-                      s.active ? 'bg-[#8a6d3b]' : 'bg-[#b0b0b0]'
-                    }`}>
-                      ⭐
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className={`truncate text-xs font-bold ${s.active ? 'text-[#2b2118]' : 'text-[#999] line-through'}`}>
-                      {s.name}
-                    </p>
-                    {s.tagline && (
-                      <p className={`truncate text-[11px] ${s.active ? 'text-[#7a6a52]' : 'text-[#aaa]'}`}>
-                        {s.tagline}
-                      </p>
-                    )}
-                    <p className="text-[10px] text-[#a0937a]">
-                      {logoUrl ? '🖼️ Com Logotipo' : '⚠️ Sem Logo'}
-                      {s.background_storage_path ? ' · ✨ Com arte' : ''}
-                      {s.whatsapp ? ' · 💬 Com WhatsApp' : ''}
-                      {' · '}A cada {s.display_every_n_tracks} louvores
-                    </p>
-                    {!s.active && (
-                      <p className="text-[10px] font-bold text-[#b3261e] mt-0.5">
-                        🚫 Bloqueado
-                      </p>
-                    )}
-                  </div>
+                {/* O anúncio exatamente como o ouvinte vê. Bloqueado fica
+                    esmaecido, pra diferenciar de relance de quem está no ar. */}
+                <div className={s.active ? '' : 'opacity-50 grayscale'}>
+                  <PreviaCard
+                    nome={s.name}
+                    frase={s.tagline || ''}
+                    whatsapp={s.whatsapp || ''}
+                    logoUrl={logoUrl || null}
+                    arteUrl={arteUrl || null}
+                    semMoldura
+                  />
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Botão Editar */}
+
+                <p className="mt-2 text-[10px] text-[#a0937a]">
+                  {logoUrl ? '🖼️ Com logotipo' : '⚠️ Sem logo'}
+                  {s.background_storage_path ? ' · ✨ Com arte' : ''}
+                  {s.whatsapp ? ' · 💬 Com WhatsApp' : ''}
+                  {' · '}A cada {s.display_every_n_tracks} louvores
+                </p>
+
+                {!s.active && (
+                  <p className="mt-1 text-[10px] font-bold text-[#b3261e]">🚫 Bloqueado</p>
+                )}
+
+                {/* Os botões ficam numa linha própria, dividindo a largura em
+                    três. Antes eles disputavam espaço com o texto na mesma
+                    linha e, com três botões, sobrava tão pouco pro texto que
+                    ele quebrava uma palavra por linha no celular. */}
+                <div className="mt-2.5 flex items-center gap-1.5">
                   <button
                     onClick={() => abrirEdicao(s)}
-                    className="rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#2b6cb0] bg-[#ebf4ff] hover:bg-[#d3e8ff] active:scale-95 transition"
+                    className="flex-1 rounded-xl bg-[#ebf4ff] py-2 text-[11px] font-bold text-[#2b6cb0] transition hover:bg-[#d3e8ff] active:scale-95"
                     title="Editar patrocinador"
                   >
                     ✏️ Editar
                   </button>
-                  {/* Botão Bloquear / Desbloquear */}
                   <button
                     onClick={() => alternarBloqueio(s)}
-                    className={`rounded-xl px-2.5 py-1.5 text-xs font-bold transition active:scale-95 ${
+                    className={`flex-1 rounded-xl py-2 text-[11px] font-bold transition active:scale-95 ${
                       s.active
                         ? 'bg-[#fef2f2] text-[#b3261e] hover:bg-[#fde8e8]'
                         : 'bg-[#eaf3ec] text-[#2f6b4f] hover:bg-[#d4eadc]'
@@ -909,10 +909,9 @@ export default function PatrocinadoresPage() {
                   >
                     {s.active ? '🔒 Bloquear' : '🔓 Ativar'}
                   </button>
-                  {/* Botão Excluir */}
                   <button
                     onClick={() => excluirPatrocinador(s)}
-                    className="rounded-xl px-2.5 py-1.5 text-xs font-bold text-[#b3261e] bg-[#fbeaea] hover:bg-[#f8d7d7] active:scale-95 transition"
+                    className="flex-1 rounded-xl bg-[#fbeaea] py-2 text-[11px] font-bold text-[#b3261e] transition hover:bg-[#f8d7d7] active:scale-95"
                     title="Excluir patrocinador definitivamente"
                   >
                     🗑️ Excluir
