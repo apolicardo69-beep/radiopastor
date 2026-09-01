@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Track, Playlist, PlaylistItem } from '@/lib/types';
 import { usePlayer } from '@/lib/PlayerContext';
-import { extractYouTubeVideoId, isYouTubeUrl, getYouTubeThumbnail, fetchYouTubeInfo } from '@/lib/youtube';
+import { isYouTubeUrl, getYouTubeThumbnail } from '@/lib/youtube';
 
 function formatarDuracao(segundos: number | null) {
   if (!segundos) return '--:--';
@@ -19,24 +19,13 @@ interface PlaylistComTracks extends Playlist {
 
 export default function MusicasPage() {
   const supabase = createClient();
-  const { tocar, musicaTocando, estaTocando, tocarPlaylist, playlistAtiva, setMostrarVideoYoutube } = usePlayer();
+  const { tocar, musicaTocando, estaTocando, tocarPlaylist, playlistAtiva } = usePlayer();
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistComTracks[]>([]);
 
   // Abas para adicionar músicas
-  const [abaAdicionar, setAbaAdicionar] = useState<'arquivos' | 'youtube' | 'link'>('youtube');
-
-  // Formulário YouTube
-  const [linkYoutube, setLinkYoutube] = useState('');
-  const [tituloYoutube, setTituloYoutube] = useState('');
-  const [ytPreview, setYtPreview] = useState<{
-    title: string | null;
-    author: string | null;
-    thumbnail: string | null;
-    videoId: string | null;
-  } | null>(null);
-  const [buscandoYt, setBuscandoYt] = useState(false);
+  const [abaAdicionar, setAbaAdicionar] = useState<'arquivos' | 'link'>('arquivos');
 
   // Formulário Link Direto
   const [link, setLink] = useState('');
@@ -280,81 +269,6 @@ export default function MusicasPage() {
     await carregarTracks();
   }
 
-  // Manipulação de URL do YouTube com busca automática de título e thumbnail
-  async function handleLinkYoutubeChange(valor: string) {
-    setLinkYoutube(valor);
-    const videoId = extractYouTubeVideoId(valor);
-
-    if (videoId) {
-      const thumb = getYouTubeThumbnail(videoId);
-      setYtPreview({
-        title: null,
-        author: null,
-        thumbnail: thumb,
-        videoId,
-      });
-      setBuscandoYt(true);
-
-      const info = await fetchYouTubeInfo(valor);
-      setYtPreview({
-        title: info.title,
-        author: info.author,
-        thumbnail: info.thumbnail || thumb,
-        videoId,
-      });
-      if (info.title && !tituloYoutube.trim()) {
-        setTituloYoutube(info.title);
-      }
-      setBuscandoYt(false);
-    } else {
-      setYtPreview(null);
-    }
-  }
-
-  async function adicionarYoutube(e: React.FormEvent) {
-    e.preventDefault();
-    const videoId = extractYouTubeVideoId(linkYoutube);
-    if (!videoId) {
-      setErro('Por favor, insira um link válido do YouTube (ex: https://www.youtube.com/watch?v=...)');
-      return;
-    }
-
-    setErro(null);
-    setSucesso(null);
-    setEnviando(true);
-
-    try {
-      const posicao = await proximaPosicao();
-      const tituloFinal =
-        tituloYoutube.trim() || ytPreview?.title || (ytPreview?.author ? `Louvor - ${ytPreview.author}` : 'Vídeo do YouTube');
-
-      const urlPadrao = `https://www.youtube.com/watch?v=${videoId}`;
-
-      const { data: novaTrack, error } = await supabase
-        .from('tracks')
-        .insert({
-          title: tituloFinal,
-          source_url: urlPadrao,
-          source: 'link',
-          position: posicao,
-        })
-        .select()
-        .single();
-
-      if (error) throw new Error(error.message);
-
-      setLinkYoutube('');
-      setTituloYoutube('');
-      setYtPreview(null);
-      setSucesso(`✅ "${tituloFinal}" adicionado com sucesso!`);
-      await carregarTracks();
-    } catch (e: any) {
-      setErro(`Não consegui adicionar vídeo: ${e.message || 'erro desconhecido'}`);
-    } finally {
-      setEnviando(false);
-    }
-  }
-
   async function adicionarLinkDireto(e: React.FormEvent) {
     e.preventDefault();
     if (!link.trim()) return;
@@ -554,18 +468,6 @@ export default function MusicasPage() {
         <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-[#f0e6d2]/60 mb-4">
           <button
             type="button"
-            onClick={() => setAbaAdicionar('youtube')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition active:scale-95 ${
-              abaAdicionar === 'youtube'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-[#5c4a35] hover:bg-[#f0e6d2]'
-            }`}
-          >
-            <span>🔴</span>
-            <span>Link YouTube</span>
-          </button>
-          <button
-            type="button"
             onClick={() => setAbaAdicionar('arquivos')}
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold transition active:scale-95 ${
               abaAdicionar === 'arquivos'
@@ -590,80 +492,11 @@ export default function MusicasPage() {
           </button>
         </div>
 
-        {/* Aba 1: YouTube */}
-        {abaAdicionar === 'youtube' && (
-          <div className="animate-in fade-in duration-200">
-            <h2 className="mb-1 text-xs font-bold uppercase tracking-wider text-[#7a6a52] flex items-center gap-1.5">
-              <span>🔴</span> Tocar ou Adicionar Louvor do YouTube
-            </h2>
-            <p className="mb-3 text-[11px] text-[#7a6a52]">
-              Cole o link de qualquer vídeo ou música do YouTube (ex: <code className="bg-[#f0e6d2] px-1 rounded">https://youtube.com/watch?v=...</code> ou <code className="bg-[#f0e6d2] px-1 rounded">https://youtu.be/...</code>). O título e a capa são carregados automaticamente!
-            </p>
-
-            <form onSubmit={adicionarYoutube} className="flex flex-col gap-3">
-              <div className="relative">
-                <input
-                  value={linkYoutube}
-                  onChange={(e) => handleLinkYoutubeChange(e.target.value)}
-                  placeholder="Cole aqui o link do YouTube (ex: https://youtu.be/abc...)"
-                  className="w-full rounded-2xl border border-[#d9c9a8] bg-[#f7f1e6]/30 px-3.5 py-2.5 text-xs font-medium focus:border-red-600 focus:ring-1 focus:ring-red-600 focus:outline-none"
-                />
-                {buscandoYt && (
-                  <div className="absolute right-3 top-2.5 flex items-center gap-1 text-[10px] text-red-600 font-bold">
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                    <span>Buscando...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Card de Pré-visualização do YouTube */}
-              {ytPreview && (
-                <div className="flex items-center gap-3 rounded-2xl bg-[#f0e6d2]/70 p-3 border border-[#d9c9a8] animate-in fade-in duration-300">
-                  {ytPreview.thumbnail ? (
-                    <img
-                      src={ytPreview.thumbnail}
-                      alt="Thumbnail YouTube"
-                      className="h-14 w-20 rounded-xl object-cover shadow-xs shrink-0 border border-black/10"
-                    />
-                  ) : (
-                    <div className="h-14 w-20 rounded-xl bg-red-600 flex items-center justify-center text-white text-xl font-bold shrink-0">
-                      ▶
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-black text-red-600 uppercase tracking-wider">
-                      Vídeo Detectado
-                    </p>
-                    <p className="truncate text-xs font-bold text-[#2b2118]">
-                      {ytPreview.title || 'Carregando título do vídeo...'}
-                    </p>
-                    {ytPreview.author && (
-                      <p className="truncate text-[11px] text-[#7a6a52]">
-                        Canal: {ytPreview.author}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <input
-                value={tituloYoutube}
-                onChange={(e) => setTituloYoutube(e.target.value)}
-                placeholder="Título da Música (opcional, detectado automaticamente)"
-                className="rounded-2xl border border-[#d9c9a8] bg-[#f7f1e6]/30 px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
-              />
-
-              <button
-                type="submit"
-                disabled={enviando || !extractYouTubeVideoId(linkYoutube)}
-                className="flex items-center justify-center gap-2 rounded-2xl bg-red-600 py-3 text-xs font-bold text-white shadow-md hover:bg-red-700 disabled:opacity-40 transition active:scale-95 cursor-pointer"
-              >
-                <span>➕</span>
-                <span>{enviando ? 'Adicionando...' : 'Adicionar Louvor do YouTube à Rádio'}</span>
-              </button>
-            </form>
-          </div>
-        )}
+        <p className="mb-4 rounded-xl bg-[#fdf4e3] p-2.5 text-[11px] leading-snug text-[#8a6d3b] border border-[#e0c98a]">
+          ⚠️ Link do YouTube foi removido: o YouTube não entrega o áudio para
+          servidores, então essas músicas nunca chegavam aos ouvintes. Envie o
+          arquivo ou use um link direto de .mp3.
+        </p>
 
         {/* Aba 2: Upload de Músicas do Celular */}
         {abaAdicionar === 'arquivos' && (
@@ -857,7 +690,7 @@ export default function MusicasPage() {
                     )}
                   </p>
                   <p className="text-[10px] text-[#7a6a52]">
-                    {isYt ? '🔴 YouTube' : track.source === 'link' ? '🌐 Link' : '📁 Arquivo'} · {formatarDuracao(track.duration_seconds)}
+                    {isYt ? '🔴 YouTube · não vai ao ar' : track.source === 'link' ? '🌐 Link' : '📁 Arquivo'} · {formatarDuracao(track.duration_seconds)}
                   </p>
                 </div>
 

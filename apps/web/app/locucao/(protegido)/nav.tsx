@@ -34,8 +34,6 @@ export default function LocucaoNav({ nome }: { nome: string }) {
     ouvintesOnline,
     setModalOuvintesAberto,
     isYouTube,
-    mostrarVideoYoutube,
-    setMostrarVideoYoutube,
   } = usePlayer();
 
   const [promptInstalacao, setPromptInstalacao] = useState<any>(null);
@@ -212,28 +210,13 @@ export default function LocucaoNav({ nome }: { nome: string }) {
                   {playlistAtiva
                     ? `📋 ${playlistAtiva.name} (${indiceFila + 1}/${filaPlaylist.length})`
                     : isYouTube
-                    ? '🔴 Vídeo do YouTube'
+                    ? '🔴 YouTube — não vai ao ar'
                     : '🎵 Som no Ar'}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
-              {isYouTube && (
-                <button
-                  onClick={() => setMostrarVideoYoutube((ant) => !ant)}
-                  className={`flex items-center gap-1 rounded-xl px-2 py-1 text-[10px] font-bold transition active:scale-95 ${
-                    mostrarVideoYoutube
-                      ? 'bg-red-600 text-white'
-                      : 'bg-white/10 text-white/80 hover:bg-white/20'
-                  }`}
-                  title={mostrarVideoYoutube ? 'Ocultar vídeo' : 'Exibir vídeo na tela'}
-                >
-                  <span>📺</span>
-                  <span>{mostrarVideoYoutube ? 'Ocultar' : 'Vídeo'}</span>
-                </button>
-              )}
-
               {playlistAtiva && filaPlaylist.length > 1 && (
                 <button
                   onClick={anterior}

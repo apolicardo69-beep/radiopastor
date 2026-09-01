@@ -3,22 +3,21 @@
 // Player compartilhado entre o Estúdio e as telas da locução.
 //
 // ---------------------------------------------------------------------------
-// MUDANÇA IMPORTANTE: o YouTube deixou de tocar dentro de um iframe
+// POR QUE NÃO HÁ MAIS YOUTUBE AQUI
 // ---------------------------------------------------------------------------
-// Antes, faixa do YouTube tocava num iframe do próprio YouTube, controlado por
-// postMessage. Funcionava pro pastor ouvir — mas NUNCA chegava aos ouvintes,
-// e não era bug: nenhum navegador deixa uma página capturar o áudio de dentro
-// de um iframe de outro domínio. O mixer da transmissão usa a Web Audio API,
-// que só alcança elementos <audio> da própria página, então a música do
-// YouTube simplesmente não existia do ponto de vista do mixer.
+// Faixa do YouTube tocava num iframe do próprio YouTube. O pastor ouvia, mas
+// os ouvintes NUNCA ouviam — e não era bug: nenhum navegador deixa uma página
+// capturar o áudio de dentro de um iframe de outro domínio, e o mixer da
+// transmissão só alcança elementos <audio> desta página.
 //
-// Agora toda faixa — arquivo enviado ou link do YouTube — toca no MESMO
-// elemento <audio>. No caso do YouTube, o áudio vem de /api/youtube/stream,
-// que extrai a faixa e serve pelo nosso próprio domínio. Como é o mesmo
-// elemento de sempre, o mixer captura sem precisar saber de onde veio.
+// Tentamos então extrair o áudio do vídeo pelo servidor. Também não deu: o
+// YouTube não entrega as faixas de áudio quando a consulta vem de um servidor
+// de nuvem — testamos como site, como app Android e como app do iPhone, e os
+// três voltaram vazios.
 //
-// Consequência: não existe mais vídeo pra mostrar. O que era a janela do vídeo
-// virou uma tela com a capa e o título — o áudio é o que importa numa rádio.
+// Por isso o YouTube saiu. Toca aqui só o que realmente vai ao ar: arquivo
+// enviado ou link direto de áudio. Faixas antigas do YouTube continuam na
+// lista, marcadas, e avisam ao serem tocadas em vez de falharem em silêncio.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
@@ -45,9 +44,6 @@ interface PlayerState {
   modalOuvintesAberto: boolean;
   setModalOuvintesAberto: (aberto: boolean) => void;
   isYouTube: boolean;
-  youtubeVideoId: string | null;
-  mostrarVideoYoutube: boolean;
-  setMostrarVideoYoutube: (mostrar: boolean | ((ant: boolean) => boolean)) => void;
   // Mensagem de erro quando uma faixa não consegue tocar — útil sobretudo no
   // YouTube, onde a extração pode falhar por motivos fora do nosso controle.
   erroFaixa: string | null;
@@ -99,7 +95,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [volumeMusica, setVolumeMusica] = useState(0.8);
   const [ouvintesOnline, setOuvintesOnline] = useState<OuvinteOnline[]>([]);
   const [modalOuvintesAberto, setModalOuvintesAberto] = useState(false);
-  const [mostrarVideoYoutube, setMostrarVideoYoutube] = useState(false);
   const [erroFaixa, setErroFaixa] = useState<string | null>(null);
 
   const youtubeVideoId = musicaTocando
@@ -107,16 +102,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     : null;
   const isYouTube = Boolean(musicaTocando?.source === 'link' && youtubeVideoId);
 
-  // Descobre o endereço de onde o áudio da faixa deve ser tocado.
-  //
-  // Link do YouTube passa pelo nosso endpoint, e não pela URL do YouTube: além
-  // de ser o que permite extrair só o áudio, isso mantém a requisição no mesmo
-  // domínio da página — condição pra Web Audio (o mixer) conseguir processar o
-  // som. Áudio de outro domínio sem CORS entra "sujo" e sai silêncio.
+  // Endereço de onde o áudio da faixa vai tocar. Link do YouTube devolve vazio
+  // de propósito — quem chama trata isso como faixa que não dá pra tocar.
   function getTrackUrl(track: Track): string {
     if (track.source === 'link' && track.source_url) {
-      const ytId = extractYouTubeVideoId(track.source_url);
-      if (ytId) return `/api/youtube/stream?id=${ytId}`;
+      if (extractYouTubeVideoId(track.source_url)) return '';
       return track.source_url;
     }
     if (track.storage_path) {
@@ -130,13 +120,30 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     (track: Track) => {
       setErroFaixa(null);
 
-      const url = getTrackUrl(track);
       const audioEl = audioRef.current;
-      if (!url || !audioEl) return;
+      if (!audioEl) return;
+
+      // Faixa antiga do YouTube: avisa em vez de falhar calada.
+      if (track.source === 'link' && extractYouTubeVideoId(track.source_url || '')) {
+        setMusicaTocando(track);
+        setEstaTocando(false);
+        setErroFaixa(
+          'Esta faixa é um link do YouTube e não vai ao ar. Envie o arquivo da música para tocá-la na rádio.'
+        );
+        return;
+      }
+
+      const url = getTrackUrl(track);
+      if (!url) {
+        setMusicaTocando(track);
+        setEstaTocando(false);
+        setErroFaixa('Esta faixa não tem um áudio válido cadastrado.');
+        return;
+      }
 
       // crossOrigin só é necessário pro Storage do Supabase, que é outro
-      // domínio e manda CORS. O endpoint do YouTube é do mesmo domínio, então
-      // não precisa (e atrapalha se ficar sobrando de uma faixa anterior).
+      // domínio e manda CORS — sem isso o mixer receberia silêncio. Pra link
+      // direto, tiramos (e o atributo não pode ficar sobrando da faixa anterior).
       if (url.includes('supabase.co')) {
         audioEl.crossOrigin = 'anonymous';
       } else {
@@ -156,11 +163,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
           console.error('Erro ao tocar áudio:', err);
           setEstaTocando(false);
           setMusicaTocando(track);
-          setErroFaixa(
-            track.source === 'link'
-              ? 'Não consegui tocar esta música do YouTube. Tente outra ou envie o arquivo.'
-              : 'Não consegui tocar este arquivo de áudio.'
-          );
+          setErroFaixa('Não consegui tocar esta faixa.');
         });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,7 +220,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setFilaPlaylist([]);
     setIndiceFila(0);
     setMusicaTocando(null);
-    setMostrarVideoYoutube(false);
     setErroFaixa(null);
   }, [pausar]);
 
@@ -398,58 +400,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         modalOuvintesAberto,
         setModalOuvintesAberto,
         isYouTube,
-        youtubeVideoId,
-        mostrarVideoYoutube,
-        setMostrarVideoYoutube,
         erroFaixa,
       }}
     >
       {children}
 
       {/* Elemento de áudio único — vive no layout, persiste entre navegações e
-          em segundo plano. TODA faixa passa por aqui, arquivo ou YouTube, e é
-          daqui que o mixer da transmissão puxa o som. */}
+          em segundo plano. Toda faixa passa por aqui, e é daqui que o mixer da
+          transmissão puxa o som que vai pros ouvintes. */}
       <audio ref={audioRef} playsInline preload="auto" />
-
-      {/* Tela da faixa do YouTube. Não há mais vídeo: o áudio é extraído e
-          tocado no elemento acima, então mostramos a capa e o título. */}
-      {isYouTube && youtubeVideoId && mostrarVideoYoutube && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in"
-          onClick={() => setMostrarVideoYoutube(false)}
-        >
-          <div
-            className="relative w-full max-w-sm rounded-3xl border border-[#d9c9a8] bg-[#2b2118] p-4 shadow-2xl animate-in zoom-in-95 duration-200"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="mb-3 flex items-center justify-between border-b border-[#d9c9a8]/30 pb-2">
-              <p className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-red-500">
-                <span>🔴</span> YouTube no Ar
-              </p>
-              <button
-                onClick={() => setMostrarVideoYoutube(false)}
-                className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/10 text-xs font-bold text-white hover:bg-white/20 active:scale-95"
-                title="Fechar (o áudio continua tocando)"
-              >
-                ✕
-              </button>
-            </div>
-
-            <img
-              src={getYouTubeThumbnail(youtubeVideoId)}
-              alt=""
-              className="w-full rounded-2xl object-cover shadow-lg"
-            />
-
-            <p className="mt-3 truncate text-sm font-bold text-white">
-              {musicaTocando?.title || 'Música do YouTube'}
-            </p>
-            <p className="mt-0.5 text-[11px] text-[#d9c9a8]">
-              🎵 O áudio está indo ao ar pelos ouvintes
-            </p>
-          </div>
-        </div>
-      )}
     </PlayerContext.Provider>
   );
 }
