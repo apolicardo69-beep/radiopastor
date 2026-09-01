@@ -87,7 +87,9 @@ async function resolverUrlDoAudio(videoId: string): Promise<{ url: string; tipo:
     throw new Error('Nenhuma faixa de áudio encontrada neste vídeo.');
   }
 
-  const url = melhor.decipher(yt.session.player);
+  // decipher() é assíncrono nesta versão da youtubei.js — sem o await, o que
+  // volta é a promessa, não o endereço (foi o que quebrou o build).
+  const url = await melhor.decipher(yt.session.player);
   if (!url) {
     throw new Error('Não consegui liberar o endereço do áudio.');
   }
