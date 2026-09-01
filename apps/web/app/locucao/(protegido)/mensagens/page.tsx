@@ -1,6 +1,20 @@
 'use client';
 
-// Histórico de mensagens dos ouvintes com filtros e moderação
+// Histórico de mensagens dos ouvintes com filtros e moderação.
+//
+// ---------------------------------------------------------------------------
+// DE ONDE VEM O TELEFONE AGORA
+// ---------------------------------------------------------------------------
+// Antes o número era pescado do próprio texto da mensagem com expressão
+// regular, porque ele vinha grudado no nome ("Carlos 📱 77988720718"). Isso
+// tinha dois problemas: acertava por acaso (qualquer número no meio de um
+// pedido virava "telefone do ouvinte") e, principalmente, significava que o
+// número estava visível pra todo mundo no bate-papo público.
+//
+// Agora o telefone vive em message_contacts, uma tabela que só pastor e
+// moderador conseguem ler. Esta tela carrega esses contatos e liga cada um à
+// sua mensagem — os ouvintes não têm como ver o número de ninguém.
+
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Message } from '@/lib/types';
@@ -10,6 +24,10 @@ export default function MensagensPage() {
   const [mensagens, setMensagens] = useState<Message[]>([]);
   const [filtro, setFiltro] = useState<'todas' | 'pedidos'>('todas');
 
+  // message_id -> telefone. Só chega preenchido pra quem está logado como
+  // equipe; pro resto do mundo a consulta volta vazia por causa da RLS.
+  const [contatos, setContatos] = useState<Record<string, string>>({});
+
   useEffect(() => {
     supabase
       .from('messages')
@@ -17,6 +35,16 @@ export default function MensagensPage() {
       .order('created_at', { ascending: false })
       .limit(200)
       .then(({ data }) => data && setMensagens(data));
+
+    supabase
+      .from('message_contacts')
+      .select('message_id, whatsapp')
+      .then(({ data }) => {
+        if (!data) return;
+        const mapa: Record<string, string> = {};
+        for (const c of data) mapa[c.message_id] = c.whatsapp;
+        setContatos(mapa);
+      });
 
     const channel = supabase
       .channel('locucao-mensagens')
@@ -33,6 +61,16 @@ export default function MensagensPage() {
             atual.map((m) => (m.id === (payload.new as Message).id ? (payload.new as Message) : m))
           )
       )
+      // O contato entra logo depois da mensagem, em outra tabela. Sem escutar
+      // aqui, o botão do WhatsApp só apareceria ao recarregar a página.
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'message_contacts' },
+        (payload) => {
+          const c = payload.new as { message_id: string; whatsapp: string };
+          setContatos((atual) => ({ ...atual, [c.message_id]: c.whatsapp }));
+        }
+      )
       .subscribe();
 
     return () => {
@@ -47,16 +85,14 @@ export default function MensagensPage() {
     return data.publicUrl;
   }
 
-  function extrairWhatsapp(texto: string): string | null {
-    if (!texto) return null;
-    const match =
-      texto.match(/📱\s*([0-9\s()+-]+)/) ||
-      texto.match(/\b(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)?(?:9\d{4}[-\s]?\d{4}|\d{4}[-\s]?\d{4})\b/);
-    if (!match) return null;
-    const digits = match[0].replace(/\D/g, '');
-    if (digits.length < 8) return null;
-    const fullNumber = digits.startsWith('55') ? digits : `55${digits}`;
-    return `https://wa.me/${fullNumber}?text=${encodeURIComponent('A paz do Senhor! Recebi sua mensagem na Rádio Graça & Paz.')}`;
+  function linkWhatsapp(numero?: string): string | null {
+    if (!numero) return null;
+    const digitos = numero.replace(/\D/g, '');
+    if (digitos.length < 8) return null;
+    const completo = digitos.startsWith('55') ? digitos : `55${digitos}`;
+    return `https://wa.me/${completo}?text=${encodeURIComponent(
+      'A paz do Senhor! Recebi sua mensagem na Rádio Graça & Paz.'
+    )}`;
   }
 
   async function marcarAtendido(m: Message) {
@@ -93,7 +129,8 @@ export default function MensagensPage() {
 
       <ul className="flex flex-col gap-2.5">
         {visiveis.map((m) => {
-          const waLink = extrairWhatsapp(`${m.author_name} ${m.content}`);
+          const telefone = contatos[m.id];
+          const waLink = linkWhatsapp(telefone);
           return (
             <li key={m.id} className="rounded-3xl bg-white p-4 shadow-sm border border-[#d9c9a8]/40">
               <div className="mb-2 flex items-center justify-between gap-2">
@@ -128,6 +165,13 @@ export default function MensagensPage() {
                   </span>
                 </div>
               </div>
+
+              {/* O número aparece só aqui, no Estúdio. Fica logo abaixo do nome
+                  pra a equipe conseguir anotar ou ditar no ar sem precisar
+                  abrir o WhatsApp. */}
+              {telefone && (
+                <p className="mb-1.5 text-[11px] font-semibold text-[#7a6a52]">📱 {telefone}</p>
+              )}
 
               {m.kind === 'audio' ? (
                 <div className="mt-1 flex flex-col gap-1 rounded-2xl bg-[#f7f1e6] p-2.5">

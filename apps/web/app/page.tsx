@@ -235,16 +235,13 @@ export default function ListenerPage() {
       try {
         const isTocando = typeof playingState === 'boolean' ? playingState : playing;
         let cName = 'Ouvinte';
-        let cWa = '';
         try {
           cName = localStorage.getItem('graca_paz_user_name') || name || 'Ouvinte';
-          cWa = localStorage.getItem('graca_paz_user_whatsapp') || whatsapp || '';
         } catch {}
 
         await presenceChannel.track({
           client_id: clientId,
           name: cName.trim() || 'Ouvinte',
-          whatsapp: cWa.trim(),
           online_at: new Date().toISOString(),
           is_playing: isTocando,
         });
@@ -440,11 +437,24 @@ export default function ListenerPage() {
     }
   }
 
+  // Só o nome vai pro author_name: essa coluna é lida por qualquer pessoa que
+  // abrir a rádio. O telefone segue por fora, em message_contacts, que só a
+  // equipe da locução consegue ler.
   function getAuthorDisplay(): string {
-    const n = name.trim() || 'Ouvinte';
+    return name.trim() || 'Ouvinte';
+  }
+
+  // Registra o telefone de quem escreveu, ligado à mensagem, na tabela
+  // protegida. Falhar aqui não pode atrapalhar o envio da mensagem — o
+  // ouvinte não tem nada a ver com isso —, então o erro só vai pro console.
+  async function registrarContato(messageId: string) {
     const w = whatsapp.trim();
-    if (w) return `${n} 📱 ${w}`;
-    return n;
+    if (!w) return;
+    try {
+      await supabase.from('message_contacts').insert({ message_id: messageId, whatsapp: w });
+    } catch (err) {
+      console.warn('Não consegui registrar o contato do ouvinte:', err);
+    }
   }
 
   function handleNameChange(novoNome: string) {
@@ -456,7 +466,6 @@ export default function ListenerPage() {
       presenceChannelRef.current.track({
         client_id: getClientId(),
         name: novoNome.trim() || 'Ouvinte',
-        whatsapp: whatsapp.trim(),
         online_at: new Date().toISOString(),
         is_playing: playing,
       });
@@ -472,7 +481,6 @@ export default function ListenerPage() {
       presenceChannelRef.current.track({
         client_id: getClientId(),
         name: name.trim() || 'Ouvinte',
-        whatsapp: novoWhatsapp.trim(),
         online_at: new Date().toISOString(),
         is_playing: playing,
       });
@@ -491,8 +499,7 @@ export default function ListenerPage() {
         presenceChannelRef.current.track({
           client_id: getClientId(),
           name: name.trim() || 'Ouvinte',
-          whatsapp: whatsapp.trim(),
-          online_at: new Date().toISOString(),
+            online_at: new Date().toISOString(),
           is_playing: false,
         });
       }
@@ -510,8 +517,7 @@ export default function ListenerPage() {
             presenceChannelRef.current.track({
               client_id: getClientId(),
               name: name.trim() || 'Ouvinte',
-              whatsapp: whatsapp.trim(),
-              online_at: new Date().toISOString(),
+                    online_at: new Date().toISOString(),
               is_playing: true,
             });
           }
@@ -552,6 +558,7 @@ export default function ListenerPage() {
         console.error('Erro ao inserir mensagem:', error);
       }
       if (data) {
+        await registrarContato(data.id);
         setMessages((atual) => {
           if (atual.some((m) => m.id === data.id)) return atual;
           return [...atual, data as Message];
@@ -677,6 +684,7 @@ export default function ListenerPage() {
           throw new Error(erroInsert.message);
         }
         if (insertedMsg) {
+          await registrarContato(insertedMsg.id);
           setMessages((atual) => {
             if (atual.some((m) => m.id === insertedMsg.id)) return atual;
             return [...atual, insertedMsg as Message];
@@ -1114,7 +1122,7 @@ export default function ListenerPage() {
             {/* Identificação do Ouvinte (Nome e WhatsApp) */}
             <div className="rounded-2xl bg-[#f7f1e6]/60 p-2.5 border border-[#d9c9a8]/50">
               <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#7a6a52] flex items-center gap-1">
-                <span>👤</span> Sua Identificação (para o Pastor / Locutor)
+                <span>👤</span> Sua Identificação (só o Pastor / Locutor vê)
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                 <input
@@ -1126,7 +1134,7 @@ export default function ListenerPage() {
                 <input
                   value={whatsapp}
                   onChange={(e) => handleWhatsappChange(e.target.value)}
-                  placeholder="Seu WhatsApp (ex: 11 99999-9999)"
+                  placeholder="Seu WhatsApp (não aparece no bate-papo)"
                   type="tel"
                   className="rounded-xl border border-[#d9c9a8] bg-white px-2.5 py-1.5 text-xs font-semibold focus:border-[#2b2118] focus:outline-none"
                 />

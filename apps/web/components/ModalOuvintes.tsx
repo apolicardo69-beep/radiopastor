@@ -2,13 +2,13 @@
 
 import { usePlayer } from '@/lib/PlayerContext';
 
-function getWhatsappLink(wa?: string): string | null {
-  if (!wa) return null;
-  const limpo = wa.replace(/\D/g, '');
-  if (!limpo) return null;
-  const numFinal = limpo.length <= 11 && !limpo.startsWith('55') ? `55${limpo}` : limpo;
-  return `https://wa.me/${numFinal}`;
-}
+// O telefone saiu daqui de propósito. A presença dos ouvintes trafega por um
+// canal em tempo real que o PRÓPRIO app do ouvinte assina — então tudo que é
+// enviado nela chega a todos os ouvintes conectados, não só ao Estúdio.
+// Mandar o telefone ali expunha o número de cada pessoa pra todas as outras.
+//
+// Pra falar com um ouvinte, use a aba Mensagens: lá o contato de quem
+// escreveu vem da tabela protegida, que só a equipe consegue ler.
 
 export default function ModalOuvintes() {
   const { ouvintesOnline, modalOuvintesAberto, setModalOuvintesAberto } = usePlayer();
@@ -47,7 +47,6 @@ export default function ModalOuvintes() {
 
         <div className="overflow-y-auto flex-1 flex flex-col gap-2 pr-1">
           {ouvintesOnline.map((ouvinte, idx) => {
-            const waLink = getWhatsappLink(ouvinte.whatsapp);
             return (
               <div
                 key={ouvinte.client_id || idx}
@@ -70,22 +69,11 @@ export default function ModalOuvintes() {
                       )}
                     </div>
                     <p className="truncate text-[11px] text-[#7a6a52]">
-                      {ouvinte.whatsapp ? `📱 ${ouvinte.whatsapp}` : 'Sem WhatsApp'}
+                      {ouvinte.is_playing ? 'Com a rádio tocando' : 'Com o app aberto'}
                     </p>
                   </div>
                 </div>
 
-                {waLink && (
-                  <a
-                    href={waLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 rounded-xl bg-[#25D366] px-3 py-1.5 text-[11px] font-bold text-white shadow-xs hover:bg-[#1ebd5a] transition active:scale-95 flex items-center gap-1"
-                  >
-                    <span>💬</span>
-                    <span>Conversar</span>
-                  </a>
-                )}
               </div>
             );
           })}
