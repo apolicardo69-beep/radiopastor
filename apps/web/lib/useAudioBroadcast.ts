@@ -124,6 +124,9 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   // Se alguma conexão desta sessão já chegou a entrar no ar. É o que separa
   // "caiu no meio do culto" (insiste muito) de "nunca subiu" (desiste logo).
   const jaEsteveAoVivoRef = useRef(false);
+  // Numera os gravadores. Só o mais novo tem permissão de enviar áudio — ver
+  // a explicação em iniciarGravacao.
+  const geracaoGravadorRef = useRef(0);
   const timerReconexaoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A função de conectar vive num ref pra que o agendador de reconexão sempre
   // chame a versão mais recente sem virar dependência de meio hook.
@@ -184,7 +187,19 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
 
   // Cada conexão precisa de um gravador novo, começando do zero, por causa do
   // cabeçalho do WebM (explicado no comentário do topo do arquivo).
+  //
+  // Também é chamada quando o servidor pede {type:'restart'}: ele faz isso
+  // sempre que precisa recriar o ffmpeg com alguém já no ar, porque um fluxo
+  // WebM não pode ser retomado do meio.
   const iniciarGravacao = useCallback((stream: MediaStream, ws: WebSocket) => {
+    // Cada gravador ganha um número. O anterior para de ser aceito no mesmo
+    // instante em que o novo nasce — e isso importa porque `stop()` ainda
+    // dispara um último pedaço depois, com áudio do meio do fluxo antigo. Se
+    // esse pedaço escapasse, o servidor o tomaria pelo começo do fluxo novo,
+    // que é exatamente o que deixava a transmissão muda.
+    const minhaGeracao = geracaoGravadorRef.current + 1;
+    geracaoGravadorRef.current = minhaGeracao;
+
     try {
       recorderRef.current?.stop();
     } catch {}
@@ -192,6 +207,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
 
     recorder.ondataavailable = async (e) => {
+      if (geracaoGravadorRef.current !== minhaGeracao) return;
       // Um gravador antigo pode entregar o último pedaço depois de já termos
       // trocado de socket; nesse caso o pedaço é descartado, senão ele entraria
       // no meio do fluxo novo e embaralharia o áudio.
@@ -299,6 +315,13 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
             setErro(null);
             iniciarGravacao(outputStream, ws);
             setStatus('ao_vivo');
+          } else if (msg.type === 'restart') {
+            // O servidor precisou recriar o ffmpeg (convidado entrando ou
+            // saindo, ou uma tentativa depois de o Icecast recusar) e pediu
+            // um fluxo novo desde o cabeçalho. Um WebM não pode ser retomado
+            // do meio: sem reiniciar o gravador aqui, o servidor receberia
+            // um pedaço solto e não conseguiria decodificar nada.
+            iniciarGravacao(outputStream, ws);
           } else if (msg.type === 'error') {
             if (primeiraVez) {
               // Recusa logo de cara é problema real (token errado, sala

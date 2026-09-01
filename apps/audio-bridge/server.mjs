@@ -148,15 +148,117 @@ const REBUILD_BACKOFF_MS = 1300;
 // já começava com o contador quase no limite, e eventualmente uma
 // nova entrada de convidado não gerava tentativa nenhuma de novo,
 // silenciosamente).
-function rebuildFfmpeg(isRetry = false) {
+// ---------------------------------------------------------
+// POR QUE NÃO DÁ PRA RECOMEÇAR O FFMPEG NO MEIO DO FLUXO
+// ---------------------------------------------------------
+// O navegador manda WebM contínuo: o primeiro pedaço traz o cabeçalho
+// (EBML + Segment + Tracks) e os seguintes são a continuação byte a byte
+// desse mesmo fluxo — não são pedaços independentes.
+//
+// A versão anterior tentava recomeçar o ffmpeg reenviando o cabeçalho
+// guardado e continuando a alimentar de onde parou. Só que o que sai disso
+// é [cabeçalho] + [metade de um cluster], e o ffmpeg não decodifica:
+//
+//     [matroska,webm] EBML header parsing failed
+//     pipe:3: Invalid data found when processing input
+//
+// Pior: ele morre em poucos milissegundos, e a heurística "morreu rápido =
+// o harbor recusou" classificava isso como recusa do Icecast e tentava de
+// novo — do mesmo jeito, com o mesmo fluxo quebrado, seis vezes, até
+// "desisti de reconectar ao harbor". A locução ficava fora do ar sem nenhum
+// erro que apontasse pra causa real (visto em produção: o pastor reconectou
+// depois de uma oscilação, o app mostrou AO VIVO e não saiu áudio nenhum).
+//
+// A correção: quando o ffmpeg precisa ser recriado com alguém já
+// transmitindo, o bridge PEDE um cabeçalho novo a quem está no ar
+// ({type:'restart'}), e o app reinicia o gravador. Só quando o cabeçalho
+// novo chega é que o ffmpeg sobe — aí ele recebe um fluxo íntegro desde o
+// começo.
+//
+// Isso vale pra três situações, não só pra reconexão: convidado entrando,
+// convidado saindo, e nova tentativa depois de o harbor recusar. Todas
+// recriam o ffmpeg com o pastor já no ar.
+
+// Todo arquivo WebM começa com estes quatro bytes. É a diferença entre "isto
+// é o começo de um fluxo" e "isto é o meio de um". Conferir aqui deixa o
+// bridge imune a um app que mande a coisa errada — que foi exatamente o
+// modo de falha que derrubou a transmissão.
+function pareceCabecalhoWebM(buf) {
+  return (
+    buf &&
+    buf.length >= 4 &&
+    buf[0] === 0x1a &&
+    buf[1] === 0x45 &&
+    buf[2] === 0xdf &&
+    buf[3] === 0xa3
+  );
+}
+
+function participantes() {
+  return [session.pastor, session.guest].filter(Boolean);
+}
+
+let timerConvidado = null;
+
+function cancelarEsperaDoConvidado() {
+  if (timerConvidado) {
+    clearTimeout(timerConvidado);
+    timerConvidado = null;
+  }
+}
+
+// Derruba o ffmpeg e pede a todo mundo que está no ar um cabeçalho novo.
+// Ninguém é alimentado até entregar — assim o próximo ffmpeg nasce com um
+// fluxo íntegro em vez de um pedaço do meio.
+function reiniciarMixagem(motivo, isRetry = false) {
   stopFfmpeg();
+  cancelarEsperaDoConvidado();
   if (!isRetry) rebuildAttempt = 0;
+
   if (!session.pastor) {
     rebuildAttempt = 0;
     return; // sem pastor, não tem o que transmitir
   }
 
-  const hasGuest = !!session.guest;
+  for (const p of participantes()) {
+    p.esperandoCabecalho = true;
+    p.initChunk = null;
+    try {
+      p.ws.send(JSON.stringify({ type: 'restart' }));
+    } catch {}
+  }
+  log(`pedindo cabeçalho novo a ${participantes().length} participante(s) — ${motivo}`);
+}
+
+// Chamado quando alguém entrega o cabeçalho. Monta assim que o pastor
+// estiver pronto; se o convidado ainda estiver devendo o dele, dá um tempo
+// curto e sobe só com o pastor em vez de deixar a rádio muda esperando.
+function talvezMontar() {
+  const pastor = session.pastor;
+  if (!pastor || pastor.esperandoCabecalho) return;
+
+  if (session.guest?.esperandoCabecalho) {
+    if (!timerConvidado) {
+      timerConvidado = setTimeout(() => {
+        timerConvidado = null;
+        log('convidado não mandou o cabeçalho a tempo — subindo só com o pastor');
+        montarFfmpeg();
+      }, 2000);
+    }
+    return;
+  }
+
+  cancelarEsperaDoConvidado();
+  montarFfmpeg();
+}
+
+function montarFfmpeg() {
+  stopFfmpeg();
+  if (!session.pastor?.initChunk) return;
+
+  // Entra na mixagem quem já tem cabeçalho. Se o convidado chegar depois,
+  // a entrega dele dispara uma nova rodada e ele entra na próxima.
+  const hasGuest = !!session.guest?.initChunk;
   const args = ['-nostdin', '-loglevel', 'error'];
   const stdio = ['ignore', 'pipe', 'pipe', 'pipe'];
 
@@ -206,22 +308,32 @@ function rebuildFfmpeg(isRetry = false) {
   ff.on('close', (code, sig) => {
     if (stderrBuf.trim()) log('[ffmpeg]', stderrBuf.trim());
     log('ffmpeg saiu', { code, sig });
-    // Um ffmpeg que morre em menos de 1.5s quase sempre significa que a
-    // conexão com o harbor do Liquidsoap foi recusada (por exemplo, ele
-    // ainda estava liberando o mountpoint de uma conexão anterior — ver
-    // "timeout" em radio.liq). Em vez de desistir e deixar a locução muda,
-    // tenta de novo algumas vezes com um pequeno intervalo.
+    // Um ffmpeg que morre em menos de 1.5s costuma significar que a conexão
+    // com o harbor do Liquidsoap foi recusada (ele ainda estava liberando o
+    // mountpoint de uma conexão anterior — ver "timeout" em radio.liq). Em
+    // vez de desistir e deixar a locução muda, tenta de novo.
+    //
+    // Cuidado que custou caro: essa mesma janela de 1.5s também pega o
+    // ffmpeg que morreu porque o ÁUDIO estava quebrado, e aí a mensagem
+    // "conexão recusada" aponta pro lugar errado. Por isso o motivo agora
+    // sai do stderr do próprio ffmpeg, e por isso a nova tentativa começa
+    // pedindo um cabeçalho novo em vez de reaproveitar o antigo: assim ela
+    // resolve os dois casos, e não só o do harbor.
     const wasCurrent = session.ffmpeg === ff;
     if (wasCurrent && session.pastor && Date.now() - startedAt < 1500) {
       if (rebuildAttempt < MAX_REBUILD_ATTEMPTS) {
         rebuildAttempt += 1;
+        const pareceAudioQuebrado = /EBML|Invalid data/i.test(stderrBuf);
+        const motivo = pareceAudioQuebrado
+          ? 'o ffmpeg não conseguiu decodificar o áudio'
+          : 'o harbor recusou a conexão';
         log(
-          `conexão recusada logo no início — tentando de novo (${rebuildAttempt}/${MAX_REBUILD_ATTEMPTS}) em ${REBUILD_BACKOFF_MS}ms`
+          `ffmpeg caiu logo no início (${motivo}) — tentando de novo (${rebuildAttempt}/${MAX_REBUILD_ATTEMPTS}) em ${REBUILD_BACKOFF_MS}ms`
         );
         session.ffmpeg = null;
-        setTimeout(() => rebuildFfmpeg(true), REBUILD_BACKOFF_MS);
+        setTimeout(() => reiniciarMixagem('nova tentativa', true), REBUILD_BACKOFF_MS);
       } else {
-        log('desisti de reconectar ao harbor depois de várias tentativas');
+        log('desisti de subir a transmissão depois de várias tentativas');
       }
     } else if (wasCurrent) {
       rebuildAttempt = 0;
@@ -229,10 +341,11 @@ function rebuildFfmpeg(isRetry = false) {
   });
   session.ffmpeg = ff;
 
-  // reenvia o "init segment" (primeiro pedaço) de cada participante antes
-  // de continuar — sem isso, o novo ffmpeg não sabe decodificar o WebM.
-  if (session.pastor?.initChunk) safeWrite(ff.stdio[3], session.pastor.initChunk);
-  if (hasGuest && session.guest?.initChunk) safeWrite(ff.stdio[4], session.guest.initChunk);
+  // O cabeçalho de cada participante abre o fluxo. Aqui ele é sempre recente
+  // — foi pedido e entregue nesta rodada — então o que o ffmpeg recebe é um
+  // WebM íntegro do primeiro byte em diante.
+  safeWrite(ff.stdio[3], session.pastor.initChunk);
+  if (hasGuest) safeWrite(ff.stdio[4], session.guest.initChunk);
 }
 
 // write() num pipe cujo outro lado (o processo ffmpeg) já morreu pode
@@ -302,7 +415,6 @@ server.listen(PORT, '0.0.0.0', () => {
 wss.on('connection', (ws) => {
   let role = null;
   let guestToken = null;
-  let gotFirstChunk = false;
   // O objeto que esta conexão ocupa dentro de `session`. Serve de identidade:
   // comparar por referência responde "eu ainda sou a conexão da vez?".
   let meuLugar = null;
@@ -334,7 +446,10 @@ wss.on('connection', (ws) => {
 
     if (role === 'pastor') {
       const anterior = session.pastor;
-      meuLugar = { ws, initChunk: null };
+      // esperandoCabecalho começa true: numa conexão nova o app acabou de
+      // criar o gravador, então o primeiro pedaço que vier JÁ é o cabeçalho.
+      // Aqui não se pede restart — só nas recriações do ffmpeg.
+      meuLugar = { ws, initChunk: null, esperandoCabecalho: true };
       // A ordem importa: primeiro o novo assume o lugar, só então o antigo é
       // derrubado. Assim, quando o 'close' do antigo disparar, ele já vai
       // encontrar o crachá novo em session e vai saber que não deve limpar
@@ -347,7 +462,7 @@ wss.on('connection', (ws) => {
       await setBroadcastState({ is_live: true });
     } else {
       const anterior = session.guest;
-      meuLugar = { ws, initChunk: null, token: guestToken };
+      meuLugar = { ws, initChunk: null, token: guestToken, esperandoCabecalho: true };
       session.guest = meuLugar;
       if (anterior) {
         log('convidado reconectou — substituindo a conexão anterior');
@@ -362,11 +477,15 @@ wss.on('connection', (ws) => {
       // conexões diferentes se misturariam no mesmo cano e o áudio sairia
       // embaralhado — pior do que não sair nada.
       if (!aindaSouOAtual()) return;
-      if (!gotFirstChunk) {
-        gotFirstChunk = true;
+
+      if (meuLugar.esperandoCabecalho) {
+        // Enquanto esperamos cabeçalho, tudo que NÃO for cabeçalho é resto do
+        // fluxo antigo, ainda a caminho. Guardar isso como se fosse o começo
+        // é justamente o que fazia o ffmpeg engasgar. Descarta e espera.
+        if (!pareceCabecalhoWebM(data)) return;
+        meuLugar.esperandoCabecalho = false;
         meuLugar.initChunk = data;
-        // só reconstrói o ffmpeg quando já temos o cabeçalho de quem entrou
-        rebuildFfmpeg();
+        talvezMontar();
       } else {
         feed(role, data);
       }
@@ -393,7 +512,10 @@ wss.on('connection', (ws) => {
         session.guest = null;
         await setGuestStatus(guestToken, 'encerrado');
         await setBroadcastState({ guest_live: false });
-        rebuildFfmpeg(); // volta a transmitir só o pastor
+        // Volta a transmitir só o pastor. Ele já está no ar, então precisa
+        // mandar um cabeçalho novo — senão o ffmpeg receberia o fluxo dele
+        // pela metade.
+        reiniciarMixagem('convidado saiu');
       }
     });
   });
