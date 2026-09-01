@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import type { BroadcastState, Message, Sponsor } from '@/lib/types';
 import SwRegisterOuvinte from './sw-register';
 import MensagemDoDia from '@/components/MensagemDoDia';
+import CardDoacao from '@/components/CardDoacao';
 
 const STREAM_URL = process.env.NEXT_PUBLIC_ICECAST_STREAM_URL || 'http://localhost:8000/radio';
 
@@ -1043,6 +1044,9 @@ export default function ListenerPage() {
             arteUrl={getSponsorArteUrl(currentSponsor.background_storage_path)}
           />
         )}
+
+        {/* Doação — fica logo depois do apoio cultural, antes do bate-papo */}
+        <CardDoacao />
 
         {/* Bate-papo dos Ouvintes */}
         <section className="flex flex-1 flex-col rounded-3xl border border-[#d9c9a8] bg-white p-4 shadow-sm">
