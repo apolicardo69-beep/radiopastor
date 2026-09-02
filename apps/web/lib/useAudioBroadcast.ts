@@ -100,6 +100,9 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const destNodeRef = useRef<MediaStreamAudioDestinationNode | null>(null);
   const micGainNodeRef = useRef<GainNode | null>(null);
+  // O nó do microfone é o único trocado a cada transmissão (cada getUserMedia
+  // devolve um stream novo); guardá-lo permite desligar o anterior.
+  const micSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const musicGainNodeRef = useRef<GainNode | null>(null);
   const musicSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const connectedAudioElRef = useRef<HTMLAudioElement | null>(null);
@@ -164,26 +167,38 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
     wsRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    outputStreamRef.current = null;
     fonteTokenRef.current = null;
 
-    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-      audioCtxRef.current.close().catch(() => {});
-    }
-    audioCtxRef.current = null;
-    destNodeRef.current = null;
-    micGainNodeRef.current = null;
-    musicGainNodeRef.current = null;
-    musicSourceNodeRef.current = null;
-    connectedAudioElRef.current = null;
-    vinhetaGainNodeRef.current = null;
-    vinhetaSourceNodeRef.current = null;
-    connectedVinhetaElRef.current = null;
-    analyserRef.current = null;
-    analyserDataRef.current = null;
+    // Só o microfone é desligado. O resto do mixer fica montado — ver a
+    // explicação logo abaixo.
+    try {
+      micSourceNodeRef.current?.disconnect();
+    } catch {}
+    micSourceNodeRef.current = null;
 
     setStatus('parado');
   }, [pararMedidorNivel, cancelarReconexaoPendente]);
+
+  // ---------------------------------------------------------------------------
+  // POR QUE O AudioContext NUNCA É FECHADO
+  // ---------------------------------------------------------------------------
+  // A versão anterior fechava o AudioContext aqui. Parece a coisa certa a
+  // fazer — só que o elemento <audio> da música passa por
+  // createMediaElementSource() pra entrar na mixagem, e a partir daí o som
+  // dele SÓ existe dentro desse contexto. Fechar o contexto emudece a música,
+  // mesmo com o player continuando a "tocar" normalmente: o tempo corre, a
+  // capa aparece, e não sai áudio nenhum.
+  //
+  // E não dá pra desfazer: createMediaElementSource só pode ser chamado uma
+  // vez por elemento. Depois que o contexto morre, aquele <audio> fica mudo
+  // pra sempre — nem voltando pra aba do Estúdio a música volta.
+  //
+  // Era isso que acontecia ao sair da aba do Estúdio: o componente
+  // desmontava, chamava parar(), o contexto fechava, e a música morria de vez.
+  //
+  // Agora o contexto é criado uma vez e fica de pé enquanto a locução estiver
+  // aberta. parar() desliga o microfone e a transmissão; a música segue
+  // tocando, e uma nova transmissão reaproveita o mesmo mixer.
 
   // Cada conexão precisa de um gravador novo, começando do zero, por causa do
   // cabeçalho do WebM (explicado no comentário do topo do arquivo).
@@ -517,33 +532,59 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
       try {
         const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (AudioCtxClass) {
-          const ctx = new AudioCtxClass();
+          // O mixer é montado UMA vez e reaproveitado em todas as transmissões
+          // seguintes. Ver a explicação em "POR QUE O AudioContext NUNCA É
+          // FECHADO", mais acima.
+          let ctx = audioCtxRef.current;
+          if (!ctx || ctx.state === 'closed') {
+            ctx = new AudioCtxClass();
+            audioCtxRef.current = ctx;
+            micGainNodeRef.current = null;
+            destNodeRef.current = null;
+            analyserRef.current = null;
+          }
           if (ctx.state === 'suspended') {
             await ctx.resume();
           }
-          audioCtxRef.current = ctx;
 
+          let micGain = micGainNodeRef.current;
+          if (!micGain) {
+            micGain = ctx.createGain();
+            micGainNodeRef.current = micGain;
+          }
+          // Mesmo padrão usado em alterarVolumeMic: agendar o valor no nó em
+          // vez de atribuir direto na propriedade.
+          micGain.gain.setValueAtTime(volumeMic, ctx.currentTime);
+
+          let dest = destNodeRef.current;
+          if (!dest) {
+            dest = ctx.createMediaStreamDestination();
+            destNodeRef.current = dest;
+            micGain.connect(dest);
+          }
+
+          // O microfone é o único pedaço trocado a cada transmissão: cada
+          // getUserMedia devolve um stream novo, então o nó anterior é
+          // desligado e um novo entra no lugar, no mesmo mixer.
+          try {
+            micSourceNodeRef.current?.disconnect();
+          } catch {}
           const micSource = ctx.createMediaStreamSource(stream);
-          const micGain = ctx.createGain();
-          micGain.gain.value = volumeMic;
-          micGainNodeRef.current = micGain;
-
-          const dest = ctx.createMediaStreamDestination();
-          destNodeRef.current = dest;
-
           micSource.connect(micGain);
-          micGain.connect(dest);
+          micSourceNodeRef.current = micSource;
 
           // Medidor de nível: "escuta" o sinal do microfone JÁ com o ganho
           // aplicado (então Mudo/Boost também refletem no medidor), sem
           // interferir no áudio que realmente vai pro ar — um nó de análise
           // só lê o sinal, não altera o que passa por ele.
-          const analyser = ctx.createAnalyser();
-          analyser.fftSize = 512;
-          analyser.smoothingTimeConstant = 0.65;
-          micGain.connect(analyser);
-          analyserRef.current = analyser;
-          analyserDataRef.current = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+          if (!analyserRef.current) {
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 512;
+            analyser.smoothingTimeConstant = 0.65;
+            micGain.connect(analyser);
+            analyserRef.current = analyser;
+            analyserDataRef.current = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+          }
 
           const medirNivel = () => {
             const an = analyserRef.current;
@@ -563,7 +604,10 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
           };
           medirNivel();
 
-          if (audioMusicaEl) {
+          // createMediaElementSource só pode ser chamado uma vez por elemento
+          // — chamar de novo lança erro e deixa o áudio mudo. Como o mixer
+          // agora sobrevive entre transmissões, a ligação já pode existir.
+          if (audioMusicaEl && connectedAudioElRef.current !== audioMusicaEl) {
             try {
               const musicSource = ctx.createMediaElementSource(audioMusicaEl);
               const musicGain = ctx.createGain();
@@ -577,7 +621,7 @@ export function useAudioBroadcast(role: 'pastor' | 'guest') {
             } catch {}
           }
 
-          if (audioVinhetaEl) {
+          if (audioVinhetaEl && connectedVinhetaElRef.current !== audioVinhetaEl) {
             try {
               const vinhetaSource = ctx.createMediaElementSource(audioVinhetaEl);
               const vinhetaGain = ctx.createGain();

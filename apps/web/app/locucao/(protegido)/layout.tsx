@@ -11,6 +11,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import LocucaoNav from './nav';
 import { PlayerProvider } from '@/lib/PlayerContext';
+import { BroadcastProvider } from '@/lib/BroadcastContext';
 import PwaInstallLocucao from '../PwaInstallLocucao';
 
 export default async function LocucaoLayout({ children }: { children: React.ReactNode }) {
@@ -33,13 +34,18 @@ export default async function LocucaoLayout({ children }: { children: React.Reac
 
   return (
     <PlayerProvider>
-      <div className="min-h-screen bg-[#f7f1e6] text-[#2b2118]">
-        <LocucaoNav nome={profile.display_name} />
-        <main className="mx-auto max-w-2xl px-4 py-6">
-          <PwaInstallLocucao />
-          {children}
-        </main>
-      </div>
+      {/* A transmissão vive aqui, no layout, e não dentro da página do
+          Estúdio: assim ela (e a música) atravessa a troca de abas em vez de
+          ser desmontada junto com a tela. */}
+      <BroadcastProvider>
+        <div className="min-h-screen bg-[#f7f1e6] text-[#2b2118]">
+          <LocucaoNav nome={profile.display_name} />
+          <main className="mx-auto max-w-2xl px-4 py-6">
+            <PwaInstallLocucao />
+            {children}
+          </main>
+        </div>
+      </BroadcastProvider>
     </PlayerProvider>
   );
 }

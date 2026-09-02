@@ -3,7 +3,7 @@
 // Tela principal da locução: controle do Ao Vivo + Mesa de Som / Músicas, Playlists e Cartucheira de Vinhetas
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useAudioBroadcast } from '@/lib/useAudioBroadcast';
+import { useBroadcast } from '@/lib/BroadcastContext';
 import { usePlayer } from '@/lib/PlayerContext';
 import type { BroadcastState, Track, Playlist, PlaylistItem, JingleSlot } from '@/lib/types';
 import MensagemDoDiaEditor from '@/components/MensagemDoDiaEditor';
@@ -64,7 +64,10 @@ export default function LocucaoHome() {
     alterarVolumeMusica,
     conectarElementoAudio,
     conectarElementoVinheta,
-  } = useAudioBroadcast('pastor');
+    audioVinhetaRef,
+    // Vem do provider no layout, não de um hook local: é isso que faz a
+    // transmissão e a música sobreviverem à troca de abas.
+  } = useBroadcast();
 
   const {
     musicaTocando,
@@ -97,7 +100,6 @@ export default function LocucaoHome() {
   const [slotEditando, setSlotEditando] = useState<JingleSlot | null>(null);
   const [nomeEditando, setNomeEditando] = useState('');
   const [enviandoVinheta, setEnviandoVinheta] = useState(false);
-  const audioVinhetaRef = useRef<HTMLAudioElement | null>(null);
   const inputVinhetaFileRef = useRef<HTMLInputElement | null>(null);
 
   async function carregarDados() {
@@ -152,6 +154,21 @@ export default function LocucaoHome() {
 
     setJingleSlots(completos);
   }
+
+  // O <audio> das vinhetas agora mora no provider (pra sobreviver à troca de
+  // abas), então os avisos de "acabou" e "deu erro" são ligados por aqui em
+  // vez de virem como props no JSX.
+  useEffect(() => {
+    const el = audioVinhetaRef.current;
+    if (!el) return;
+    const aoTerminar = () => setSlotTocando(null);
+    el.addEventListener('ended', aoTerminar);
+    el.addEventListener('error', aoTerminar);
+    return () => {
+      el.removeEventListener('ended', aoTerminar);
+      el.removeEventListener('error', aoTerminar);
+    };
+  }, [audioVinhetaRef]);
 
   useEffect(() => {
     carregarDados();
@@ -363,14 +380,6 @@ export default function LocucaoHome() {
 
   return (
     <div className="flex flex-col gap-4 pb-16">
-      {/* Audio element dedicado à Cartucheira de Vinhetas */}
-      <audio
-        ref={audioVinhetaRef}
-        onEnded={() => setSlotTocando(null)}
-        onError={() => setSlotTocando(null)}
-        className="hidden"
-      />
-
       {/* Modal de Configuração do Slot de Vinheta */}
       {slotEditando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in">
