@@ -7,6 +7,7 @@ import { useBroadcast } from '@/lib/BroadcastContext';
 import { usePlayer } from '@/lib/PlayerContext';
 import type { BroadcastState, Track, Playlist, PlaylistItem, JingleSlot } from '@/lib/types';
 import MensagemDoDiaEditor from '@/components/MensagemDoDiaEditor';
+import BatePapoEstudio from '@/components/BatePapoEstudio';
 import { isYouTubeUrl, getYouTubeThumbnail } from '@/lib/youtube';
 
 const TEXTO_STATUS: Record<string, string> = {
@@ -602,6 +603,10 @@ export default function LocucaoHome() {
           </p>
         )}
       </section>
+
+      {/* Bate-papo ao vivo, com moderação. Fica logo abaixo do microfone
+          porque é durante a transmissão que ele precisa ser visto e usado. */}
+      <BatePapoEstudio />
 
       {/* Cartucheira de Vinhetas (6 Botões de Disparo Imediato) */}
       <section className="rounded-3xl bg-white p-5 shadow-sm border border-[#d9c9a8]/40">

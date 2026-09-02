@@ -59,6 +59,26 @@ export interface Message {
   fulfilled: boolean;
   client_id: string;
   created_at: string;
+  // Moderação (0009_moderacao_chat.sql). A mensagem removida continua no
+  // banco, marcada; quem a esconde dos ouvintes é a RLS, não a tela. Só a
+  // equipe da locução enxerga uma linha com hidden = true — é isso que
+  // permite desfazer e saber o que foi removido.
+  hidden: boolean;
+  hidden_at: string | null;
+}
+
+// Ouvinte impedido de enviar mensagens até `until` (0009_moderacao_chat.sql).
+// A tabela é legível apenas pela equipe, e a recusa acontece na política de
+// INSERT de `messages`, no banco — não dá pra burlar mexendo no app.
+//
+// O client_id é o identificador que o app guarda no navegador do ouvinte.
+// Quem limpar os dados do navegador volta com um id novo: resolve o
+// insistente comum, não um determinado.
+export interface MutedListener {
+  client_id: string;
+  until: string;
+  reason: string | null;
+  created_at: string;
 }
 
 export interface Sponsor {
@@ -124,5 +144,3 @@ export interface OuvinteOnline {
   online_at?: string;
   is_playing?: boolean;
 }
-
-

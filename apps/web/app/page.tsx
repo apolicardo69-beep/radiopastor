@@ -3,6 +3,7 @@
 // Tela do ouvinte: player ao vivo, chat em tempo real e arte do patrocinador
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { CANAL_MODERACAO, EVENTO_OCULTAR, EVENTO_MOSTRAR } from '@/lib/moderacao';
 import type { BroadcastState, Message, Sponsor } from '@/lib/types';
 import SwRegisterOuvinte from './sw-register';
 import MensagemDoDia from '@/components/MensagemDoDia';
@@ -193,6 +194,24 @@ export default function ListenerPage() {
   // atendido. Sem essa marcação não existia nenhum jeito do ouvinte gerar
   // esse tipo de mensagem, mesmo a tela do locutor já esperando por elas.
   const [modoPedido, setModoPedido] = useState(false);
+
+  // Se este aparelho está impedido de enviar. A recusa de verdade acontece no
+  // banco, na política de INSERT de messages — isto aqui só serve pra avisar a
+  // pessoa, em vez de a mensagem sumir sem explicação nenhuma.
+  const [silenciado, setSilenciado] = useState(false);
+
+  // Pergunta ao banco se este aparelho está silenciado. A resposta é só "sim
+  // ou não": a lista de silenciados é legível apenas pela equipe, e a função
+  // do banco não expõe quem mais está na lista.
+  async function conferirSeEstouSilenciado(): Promise<boolean> {
+    try {
+      const { data } = await supabase.rpc('esta_silenciado', { p_client_id: getClientId() });
+      setSilenciado(data === true);
+      return data === true;
+    } catch {
+      return false;
+    }
+  }
   const [sponsorsList, setSponsorsList] = useState<Sponsor[]>([]);
   const [currentSponsorIndex, setCurrentSponsorIndex] = useState(0);
   const [sponsor, setSponsor] = useState<Sponsor | null>(null);
@@ -364,6 +383,32 @@ export default function ListenerPage() {
       });
     }, 6000);
 
+    conferirSeEstouSilenciado();
+
+    // Canal de avisos da moderação. Sem ele, uma mensagem ocultada pelo pastor
+    // continuaria na tela de quem já está com o app aberto: a RLS passa a
+    // esconder a linha, e o Realtime respeita a RLS — ou seja, o app deixa de
+    // receber qualquer evento sobre ela. O aviso carrega só o id.
+    const canalModeracao = supabase
+      .channel(CANAL_MODERACAO)
+      .on('broadcast', { event: EVENTO_OCULTAR }, ({ payload }) => {
+        setMessages((atual) => atual.filter((m) => m.id !== payload?.id));
+      })
+      .on('broadcast', { event: EVENTO_MOSTRAR }, async ({ payload }) => {
+        if (!payload?.id) return;
+        // Desfazer: o conteúdo não está mais na memória do app, então busca de
+        // novo. Agora a RLS deixa passar.
+        const { data } = await supabase.from('messages').select('*').eq('id', payload.id).single();
+        if (!data) return;
+        setMessages((atual) => {
+          if (atual.some((m) => m.id === data.id)) return atual;
+          return [...atual, data as Message].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          );
+        });
+      })
+      .subscribe();
+
     const channel = supabase
       .channel('chat-publico-realtime')
       .on(
@@ -420,6 +465,7 @@ export default function ListenerPage() {
 
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(canalModeracao);
       if (presenceChannelRef.current) {
         supabase.removeChannel(presenceChannelRef.current);
       }
@@ -557,6 +603,13 @@ export default function ListenerPage() {
 
       if (error) {
         console.error('Erro ao inserir mensagem:', error);
+        // A recusa mais provável é o silenciamento, que vem da política de
+        // INSERT. Confere e devolve o texto pro campo, pra pessoa não perder o
+        // que escreveu.
+        if (await conferirSeEstouSilenciado()) {
+          setText(conteudo);
+          setModoPedido(eraPedido);
+        }
       }
       if (data) {
         await registrarContato(data.id);
@@ -1212,14 +1265,22 @@ export default function ListenerPage() {
                 <input
                   value={text}
                   onChange={(e) => setText(e.target.value)}
-                  placeholder={modoPedido ? 'Qual música você quer pedir?' : 'Escreva uma mensagem...'}
-                  className="flex-1 rounded-2xl border border-[#d9c9a8] bg-white px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none"
+                  disabled={silenciado}
+                  placeholder={
+                    silenciado
+                      ? 'Envio de mensagens temporariamente indisponível'
+                      : modoPedido
+                        ? 'Qual música você quer pedir?'
+                        : 'Escreva uma mensagem...'
+                  }
+                  className="flex-1 rounded-2xl border border-[#d9c9a8] bg-white px-3.5 py-2.5 text-xs focus:border-[#2b2118] focus:outline-none disabled:bg-[#f0e6d2] disabled:text-[#a0937a]"
                 />
 
                 {/* Botão Gravar Áudio */}
                 <button
                   type="button"
                   onClick={alternarGravacao}
+                  disabled={silenciado}
                   title="Gravar áudio"
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#f0e6d2] text-[#5c4a35] text-base hover:bg-[#e4d6be] transition active:scale-90 shadow-xs"
                 >
@@ -1229,7 +1290,7 @@ export default function ListenerPage() {
                 {/* Botão Enviar Texto */}
                 <button
                   type="submit"
-                  disabled={!text.trim()}
+                  disabled={!text.trim() || silenciado}
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#2b2118] text-sm text-[#f7f1e6] shadow-sm disabled:opacity-40 transition active:scale-90"
                 >
                   ➤

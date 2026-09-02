@@ -17,6 +17,8 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { carregarSilenciados } from '@/lib/moderacao';
+import ModeracaoMensagem from '@/components/ModeracaoMensagem';
 import type { Message } from '@/lib/types';
 
 export default function MensagensPage() {
@@ -28,6 +30,14 @@ export default function MensagensPage() {
   // equipe; pro resto do mundo a consulta volta vazia por causa da RLS.
   const [contatos, setContatos] = useState<Record<string, string>>({});
 
+  // client_id -> até quando está silenciado. Como message_contacts, só chega
+  // preenchido pra equipe: a RLS de muted_listeners não devolve nada ao ouvinte.
+  const [silenciados, setSilenciados] = useState<Record<string, string>>({});
+
+  async function recarregarSilenciados() {
+    setSilenciados(await carregarSilenciados(supabase));
+  }
+
   useEffect(() => {
     supabase
       .from('messages')
@@ -35,6 +45,12 @@ export default function MensagensPage() {
       .order('created_at', { ascending: false })
       .limit(200)
       .then(({ data }) => data && setMensagens(data));
+
+    // Carrega a lista de silenciados. O aviso do lint aqui é o mesmo padrão já
+    // usado nas outras telas: a função é assíncrona, então o estado só muda
+    // depois da resposta do banco, não durante a renderização.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    recarregarSilenciados();
 
     supabase
       .from('message_contacts')
@@ -63,6 +79,11 @@ export default function MensagensPage() {
       )
       // O contato entra logo depois da mensagem, em outra tabela. Sem escutar
       // aqui, o botão do WhatsApp só apareceria ao recarregar a página.
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'muted_listeners' },
+        () => recarregarSilenciados()
+      )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'message_contacts' },
@@ -132,7 +153,14 @@ export default function MensagensPage() {
           const telefone = contatos[m.id];
           const waLink = linkWhatsapp(telefone);
           return (
-            <li key={m.id} className="rounded-3xl bg-white p-4 shadow-sm border border-[#d9c9a8]/40">
+            <li
+              key={m.id}
+              className={`rounded-3xl p-4 shadow-sm border ${
+                m.hidden
+                  ? 'border-[#b3261e]/25 bg-[#fbeaea]/40'
+                  : 'border-[#d9c9a8]/40 bg-white'
+              }`}
+            >
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5 min-w-0">
                   <span className="text-xs font-bold text-[#2b2118]">{m.author_name}</span>
@@ -184,8 +212,25 @@ export default function MensagensPage() {
                   />
                 </div>
               ) : (
-                <p className="text-xs leading-relaxed text-[#2b2118]">{m.content}</p>
+                <p
+                  className={`text-xs leading-relaxed ${
+                    m.hidden ? 'text-[#a0937a] line-through' : 'text-[#2b2118]'
+                  }`}
+                >
+                  {m.content}
+                </p>
               )}
+
+              {/* Moderação: ocultar do bate-papo público e silenciar quem
+                  escreveu. Fica no fim do cartão pra não competir com o
+                  conteúdo da mensagem. */}
+              <div className="mt-2.5 border-t border-[#d9c9a8]/40 pt-2.5">
+                <ModeracaoMensagem
+                  mensagem={m}
+                  silenciadoAte={silenciados[m.client_id]}
+                  onMudou={recarregarSilenciados}
+                />
+              </div>
 
               {m.type === 'pedido' && (
                 <button
